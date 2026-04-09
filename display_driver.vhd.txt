@@ -1,0 +1,59 @@
+library IEEE;
+use IEEE.STD_LOGIC_1164.ALL;
+use IEEE.NUMERIC_STD.ALL;
+
+entity display_driver is
+    Port (
+        clk      : in  STD_LOGIC;
+        ce       : in  STD_LOGIC;
+        sw_i     : in  STD_LOGIC_VECTOR(3 downto 0);
+        state_i  : in  integer;
+        digit_idx: in  integer;
+        seg_o    : out STD_LOGIC_VECTOR(6 downto 0);
+        an_o     : out STD_LOGIC_VECTOR(7 downto 0)
+    );
+end display_driver;
+
+architecture Behavioral of display_driver is
+    signal mux_cnt : unsigned(1 downto 0) := "00";
+    signal hex_val : std_logic_vector(6 downto 0);
+begin
+    process(clk) begin
+        if rising_edge(clk) and ce = '1' then mux_cnt <= mux_cnt + 1; end if;
+    end process;
+
+    process(mux_cnt, state_i, sw_i, digit_idx)
+    begin
+        an_o <= (others => '1');
+        case state_i is
+            when 1 => -- OPEN: "OPEn"
+                an_o(3 downto 0) <= "1111"; an_o(to_integer(mux_cnt)) <= '0';
+                case mux_cnt is
+                    when "11" => hex_val <= "0000001"; -- O
+                    when "10" => hex_val <= "0001100"; -- P
+                    when "01" => hex_val <= "0000110"; -- E
+                    when "00" => hex_val <= "0101011"; -- n
+                    when others => hex_val <= "1111111";
+                end case;
+            when 2 => -- ERR: "Err"
+                an_o(2 downto 0) <= "111"; an_o(to_integer(mux_cnt)) <= '0';
+                case mux_cnt is
+                    when "10" => hex_val <= "0000110"; -- E
+                    when "01" => hex_val <= "0101111"; -- r
+                    when "00" => hex_val <= "0101111"; -- r
+                    when others => hex_val <= "1111111";
+                end case;
+            when others => -- INPUT
+                an_o(digit_idx) <= '0';
+                case sw_i is
+                    when x"0" => hex_val <= "1000000"; when x"1" => hex_val <= "1111001";
+                    when x"2" => hex_val <= "0100100"; when x"3" => hex_val <= "0110000";
+                    when x"4" => hex_val <= "0011001"; when x"5" => hex_val <= "0010010";
+                    when x"6" => hex_val <= "0000010"; when x"7" => hex_val <= "1111000";
+                    when x"8" => hex_val <= "0000000"; when x"9" => hex_val <= "0010000";
+                    when others => hex_val <= "0111111";
+                end case;
+        end case;
+    end process;
+    seg_o <= hex_val;
+end Behavioral;
