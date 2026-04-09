@@ -37,9 +37,9 @@ entity debounce is
            btnl_in : in STD_LOGIC;
            btnr_in : in STD_LOGIC;
            btnd_in : in STD_LOGIC;
-           btnl_press : out STD_LOGIC;
-           btnr_press : out STD_LOGIC;
-           btnd_press : out STD_LOGIC
+           btnl_pressed : out STD_LOGIC;
+           btnr_pressed : out STD_LOGIC;
+           btnd_pressed : out STD_LOGIC
            );
 end debounce;
 
