@@ -1,48 +1,42 @@
-----------------------------------------------------------------------------------
--- Company: 
--- Engineer: 
--- 
--- Create Date: 04/09/2026 05:16:00 PM
--- Design Name: 
--- Module Name: Comparator - Behavioral
--- Project Name: 
--- Target Devices: 
--- Tool Versions: 
--- Description: 
--- 
--- Dependencies: 
--- 
--- Revision:
--- Revision 0.01 - File Created
--- Additional Comments:
--- 
-----------------------------------------------------------------------------------
-
-
 library IEEE;
 use IEEE.STD_LOGIC_1164.ALL;
 
--- Uncomment the following library declaration if using
--- arithmetic functions with Signed or Unsigned values
---use IEEE.NUMERIC_STD.ALL;
-
--- Uncomment the following library declaration if instantiating
--- any Xilinx leaf cells in this code.
---library UNISIM;
---use UNISIM.VComponents.all;
-
 entity Comparator is
-    Port ( clk : in STD_LOGIC;
-           rst : in STD_LOGIC;
-           idx_pos : in STD_LOGIC_VECTOR (1 downto 0);
-           sw_in : in STD_LOGIC_VECTOR (3 downto 0);
-           write_en : in STD_LOGIC;
-           full_code : out STD_LOGIC_VECTOR (15 downto 0));
+    Port ( 
+        clk        : in  STD_LOGIC;
+        rst        : in  STD_LOGIC;
+        code_in    : in  STD_LOGIC_VECTOR (15 downto 0);
+        lock_open  : out STD_LOGIC; -- Green LED
+        lock_close : out STD_LOGIC  -- Red LED
+    );
 end Comparator;
 
 architecture Behavioral of Comparator is
 
+    -- Change this to whatever 4-digit PIN you want!
+    -- Each hex digit corresponds to a 4-bit switch value.
+    constant C_SECRET_PIN : std_logic_vector(15 downto 0) := x"1234";
+
 begin
 
+    p_compare : process (clk) is
+    begin
+        if rising_edge(clk) then
+            if rst = '1' then
+                -- Default state: Locked
+                lock_open  <= '0';
+                lock_close <= '1';
+            else
+                -- The Moment of Truth
+                if (code_in = C_SECRET_PIN) then
+                    lock_open  <= '1'; -- Green ON
+                    lock_close <= '0'; -- Red OFF
+                else
+                    lock_open  <= '0'; -- Green OFF
+                    lock_close <= '1'; -- Red ON
+                end if;
+            end if;
+        end if;
+    end process p_compare;
 
 end Behavioral;
