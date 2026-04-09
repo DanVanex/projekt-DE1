@@ -17,7 +17,7 @@ end debounce;
 architecture Behavioral of debounce is
 
     constant C_SHIFT_LEN : positive := 4;
-    constant C_MAX       : positive := 200_000; -- 2 ms for implementation
+    constant C_MAX       : positive := 200_000;
 
     -- Component for clock enable
     component clk_en is
@@ -29,13 +29,13 @@ architecture Behavioral of debounce is
         );
     end component clk_en;
 
-    -- Internal signals (Vectors for 3 buttons: 2=Left, 1=Right, 0=Down)
+    -- Internal signals
     signal ce_sample : std_logic;
     signal btn_vec   : std_logic_vector(2 downto 0);
     signal sync0     : std_logic_vector(2 downto 0);
     signal sync1     : std_logic_vector(2 downto 0);
     
-    -- Array for shift registers (3 buttons, each has a shift history)
+    -- Array for shift registers
     type t_shift_reg is array (2 downto 0) of std_logic_vector(C_SHIFT_LEN-1 downto 0);
     signal shift_regs : t_shift_reg;
     
