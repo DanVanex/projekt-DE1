@@ -5,7 +5,7 @@ entity tb_debounce is
 end tb_debounce;
 
 architecture test of tb_debounce is
-    -- Signals to connect to the UUT
+    -- Signals
     signal s_clk          : std_logic := '0';
     signal s_rst          : std_logic;
     signal s_btnl_in      : std_logic := '0';
@@ -16,10 +16,10 @@ architecture test of tb_debounce is
     signal s_btnd_pressed : std_logic;
 
     constant CLK_PERIOD : time := 10 ns;
+    -- Note: Make sure G_MAX in your debounce.vhd is set to something small 
+    -- (like 10 or 100) while running this, or the "wait for 2 ms" might 
+    -- be too short!
 begin
-    -- 1. Instantiate the Debouncer
-    -- IMPORTANT: In your simulation tool, ensure G_MAX is small (e.g., 10) 
-    -- so you don't have to wait for 200,000 cycles!
     uut: entity work.debounce
         port map (
             clk          => s_clk,
@@ -32,39 +32,56 @@ begin
             btnd_pressed => s_btnd_pressed
         );
 
-    -- 2. Clock Generation
     s_clk <= not s_clk after CLK_PERIOD/2;
 
-    -- 3. Stimulus Process
     stim_proc: process
     begin
         -- Initial Reset
         s_rst <= '1';
-        wait for 50 ns;
+        s_btnl_in <= '0'; s_btnr_in <= '0'; s_btnd_in <= '0';
+        wait for 100 ns;
         s_rst <= '0';
-        wait for 50 ns;
+        wait for 100 ns;
 
         -----------------------------------------------------------
-        -- SIMULATING A BOUNCY BUTTON PRESS (on BTND)
+        -- TEST 1: Bouncy BTND (Confirmation Button)
         -----------------------------------------------------------
-        -- The button starts bouncing
         s_btnd_in <= '1'; wait for 40 ns;
         s_btnd_in <= '0'; wait for 30 ns;
         s_btnd_in <= '1'; wait for 50 ns;
         s_btnd_in <= '0'; wait for 20 ns;
-        
-        -- Finally, the user holds the button steady
-        s_btnd_in <= '1'; 
-        
-        -- Wait long enough for the debouncer to "confirm" the press
-        -- If G_MAX is 200,000, you'd need to wait > 2ms here.
-        -- If G_MAX is 10, wait 500 ns.
-        wait for 2 ms; 
+        s_btnd_in <= '1'; -- User holds it
+        wait for 2 ms;    -- Wait for debounce logic to trigger
+        s_btnd_in <= '0'; -- Release
+        wait for 1 ms;
 
-        -- Release the button
-        s_btnd_in <= '0';
+        -----------------------------------------------------------
+        -- TEST 2: Clean BTNL (Move Left)
+        -----------------------------------------------------------
+        s_btnl_in <= '1';
         wait for 2 ms;
+        s_btnl_in <= '0';
+        wait for 1 ms;
 
+        -----------------------------------------------------------
+        -- TEST 3: Clean BTNR (Move Right)
+        -----------------------------------------------------------
+        s_btnr_in <= '1';
+        wait for 2 ms;
+        s_btnr_in <= '0';
+        wait for 1 ms;
+
+        -----------------------------------------------------------
+        -- TEST 4: Multiple Buttons (Safety check)
+        -----------------------------------------------------------
+        -- Pressing L and R at the same time shouldn't break anything
+        s_btnl_in <= '1';
+        s_btnr_in <= '1';
+        wait for 2 ms;
+        s_btnl_in <= '0';
+        s_btnr_in <= '0';
+        
+        wait for 2 ms;
         wait; 
     end process;
 end test;
