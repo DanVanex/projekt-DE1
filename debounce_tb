@@ -36,7 +36,7 @@ begin
 
     stim_proc: process
     begin
-        -- Initial Reset
+        -- 1. Reset
         s_rst <= '1';
         s_btnl_in <= '0'; s_btnr_in <= '0'; s_btnd_in <= '0';
         wait for 100 ns;
@@ -44,44 +44,42 @@ begin
         wait for 100 ns;
 
         -----------------------------------------------------------
-        -- TEST 1: Bouncy BTND (Confirmation Button)
+        -- RAPID FIRE TEST (All buttons in quick succession)
         -----------------------------------------------------------
-        s_btnd_in <= '1'; wait for 40 ns;
-        s_btnd_in <= '0'; wait for 30 ns;
-        s_btnd_in <= '1'; wait for 50 ns;
-        s_btnd_in <= '0'; wait for 20 ns;
-        s_btnd_in <= '1'; -- User holds it
-        wait for 2 ms;    -- Wait for debounce logic to trigger
-        s_btnd_in <= '0'; -- Release
-        wait for 1 ms;
-
-        -----------------------------------------------------------
-        -- TEST 2: Clean BTNL (Move Left)
-        -----------------------------------------------------------
-        s_btnl_in <= '1';
-        wait for 2 ms;
-        s_btnl_in <= '0';
-        wait for 1 ms;
-
-        -----------------------------------------------------------
-        -- TEST 3: Clean BTNR (Move Right)
-        -----------------------------------------------------------
-        s_btnr_in <= '1';
-        wait for 2 ms;
-        s_btnr_in <= '0';
-        wait for 1 ms;
-
-        -----------------------------------------------------------
-        -- TEST 4: Multiple Buttons (Safety check)
-        -----------------------------------------------------------
-        -- Pressing L and R at the same time shouldn't break anything
-        s_btnl_in <= '1';
-        s_btnr_in <= '1';
-        wait for 2 ms;
-        s_btnl_in <= '0';
-        s_btnr_in <= '0';
         
-        wait for 2 ms;
+        -- Press Left
+        s_btnl_in <= '1'; wait for 500 ns; s_btnl_in <= '0';
+        wait for 200 ns;
+
+        -- Press Right
+        s_btnr_in <= '1'; wait for 500 ns; s_btnr_in <= '0';
+        wait for 200 ns;
+
+        -- Press Down
+        s_btnd_in <= '1'; wait for 500 ns; s_btnd_in <= '0';
+        wait for 200 ns;
+
+        -----------------------------------------------------------
+        -- OVERLAP TEST (Simultaneous presses)
+        -----------------------------------------------------------
+        s_btnl_in <= '1'; -- Hold Left
+        wait for 200 ns;
+        s_btnr_in <= '1'; -- Then press Right while holding Left
+        wait for 500 ns;
+        s_btnl_in <= '0';
+        s_btnr_in <= '0';
+
+        -----------------------------------------------------------
+        -- BOUNCY STRESS TEST (Rapid jitter on Right button)
+        -----------------------------------------------------------
+        for i in 1 to 5 loop
+            s_btnr_in <= '1'; wait for 20 ns;
+            s_btnr_in <= '0'; wait for 20 ns;
+        end loop;
+        s_btnr_in <= '1'; -- Finally hold it
+        wait for 1 ms;
+        s_btnr_in <= '0';
+
         wait; 
     end process;
 end test;
