@@ -30,8 +30,9 @@ entity counter is
     port (
         clk : in  std_logic;                             --! Main clock
         rst : in  std_logic;                             --! High-active synchronous reset
-        en  : in  std_logic;                             --! Clock enable input
-        cnt : out std_logic_vector(G_BITS - 1 downto 0)  --! Counter value
+        en_dec  : in  std_logic;   
+        en_inc  : in  std_logic;                             --! Clock enable input
+        slot_idx : out std_logic_vector(G_BITS - 1 downto 0)
     );
 end entity counter;
 
