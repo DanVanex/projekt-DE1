@@ -1,0 +1,70 @@
+library ieee;
+use ieee.std_logic_1164.all;
+
+entity tb_debounce is
+end tb_debounce;
+
+architecture test of tb_debounce is
+    -- Signals to connect to the UUT
+    signal s_clk          : std_logic := '0';
+    signal s_rst          : std_logic;
+    signal s_btnl_in      : std_logic := '0';
+    signal s_btnr_in      : std_logic := '0';
+    signal s_btnd_in      : std_logic := '0';
+    signal s_btnl_pressed : std_logic;
+    signal s_btnr_pressed : std_logic;
+    signal s_btnd_pressed : std_logic;
+
+    constant CLK_PERIOD : time := 10 ns;
+begin
+    -- 1. Instantiate the Debouncer
+    -- IMPORTANT: In your simulation tool, ensure G_MAX is small (e.g., 10) 
+    -- so you don't have to wait for 200,000 cycles!
+    uut: entity work.debounce
+        port map (
+            clk          => s_clk,
+            rst          => s_rst,
+            btnl_in      => s_btnl_in,
+            btnr_in      => s_btnr_in,
+            btnd_in      => s_btnd_in,
+            btnl_pressed => s_btnl_pressed,
+            btnr_pressed => s_btnr_pressed,
+            btnd_pressed => s_btnd_pressed
+        );
+
+    -- 2. Clock Generation
+    s_clk <= not s_clk after CLK_PERIOD/2;
+
+    -- 3. Stimulus Process
+    stim_proc: process
+    begin
+        -- Initial Reset
+        s_rst <= '1';
+        wait for 50 ns;
+        s_rst <= '0';
+        wait for 50 ns;
+
+        -----------------------------------------------------------
+        -- SIMULATING A BOUNCY BUTTON PRESS (on BTND)
+        -----------------------------------------------------------
+        -- The button starts bouncing
+        s_btnd_in <= '1'; wait for 40 ns;
+        s_btnd_in <= '0'; wait for 30 ns;
+        s_btnd_in <= '1'; wait for 50 ns;
+        s_btnd_in <= '0'; wait for 20 ns;
+        
+        -- Finally, the user holds the button steady
+        s_btnd_in <= '1'; 
+        
+        -- Wait long enough for the debouncer to "confirm" the press
+        -- If G_MAX is 200,000, you'd need to wait > 2ms here.
+        -- If G_MAX is 10, wait 500 ns.
+        wait for 2 ms; 
+
+        -- Release the button
+        s_btnd_in <= '0';
+        wait for 2 ms;
+
+        wait; 
+    end process;
+end test;
