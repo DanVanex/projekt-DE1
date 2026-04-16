@@ -4,13 +4,13 @@ use IEEE.STD_LOGIC_1164.ALL;
 entity Digital_Safe is
     Port ( 
         clk      : in  STD_LOGIC;                         -- System Clock
-        rst      : in  STD_LOGIC;                         -- Reset Button
+        btnu      : in  STD_LOGIC;                         -- Reset Button
         sw       : in  STD_LOGIC_VECTOR (3 downto 0);     -- 4 Switches for digit entry
         btnr     : in  STD_LOGIC;                         -- Move Right
         btnl     : in  STD_LOGIC;                         -- Move Left
         btnd     : in  STD_LOGIC;                         -- Save Digit
         seg      : out STD_LOGIC_VECTOR (6 downto 0);     -- 7-segment display segments
-        an       : out STD_LOGIC_VECTOR (3 downto 0);     -- 4 Anodes
+        an       : out STD_LOGIC_VECTOR (7 downto 0);     -- 4 Anodes
         dp       : out STD_LOGIC;                         -- Decimal Point
         led17_g  : out STD_LOGIC;                         -- Open Status
         led16_r  : out STD_LOGIC                          -- Locked Status
@@ -71,6 +71,7 @@ architecture Structural of Digital_Safe is
     -- Internal Signals (The "Wires")
     ----------------------------------------------------------------
     signal s_btnl_p, s_btnr_p, s_btnd_p : std_logic;
+    signal s_an_4: std_logic_vector (3 downto 0);
     signal s_slot_idx : std_logic_vector(1 downto 0);
     signal s_full_code : std_logic_vector(15 downto 0);
 
@@ -79,7 +80,7 @@ begin
     -- 1. Debounce the buttons
     inst_debounce: debounce
         port map (
-            clk => clk, rst => rst,
+            clk => clk, rst => btnu,
             btnl_in => btnl, btnr_in => btnr, btnd_in => btnd,
             btnl_pressed => s_btnl_p, 
             btnr_pressed => s_btnr_p, 
@@ -90,7 +91,7 @@ begin
     inst_counter: counter
         generic map ( G_BITS => 2 )
         port map (
-            clk => clk, rst => rst,
+            clk => clk, rst => btnu,
             en_dec => s_btnr_p,  -- Decrement moves cursor Right
             en_inc => s_btnl_p,  -- Increment moves cursor Left
             slot_idx => s_slot_idx
@@ -99,7 +100,7 @@ begin
     -- 3. Register Storage (saves switches to the selected slot)
     inst_registr: Registr
         port map (
-            clk => clk, rst => rst,
+            clk => clk, rst => btnu,
             idx_pos => s_slot_idx,
             sw_in => sw,
             write_en => s_btnd_p, -- Only write when debounced button is pulsed
@@ -109,7 +110,7 @@ begin
     -- 4. Comparator (checks against the secret PIN)
     inst_comparator: Comparator
         port map (
-            clk => clk, rst => rst,
+            clk => clk, rst => btnu,
             code_in => s_full_code,
             lock_open => led17_g,
             lock_close => led16_r
@@ -118,7 +119,7 @@ begin
     -- 5. Display Driver (shows the code and the decimal point cursor)
     inst_display: display_driver
         port map (
-            clk => clk, rst => rst,
+            clk => clk, rst => btnu,
             data_in => s_full_code,
             idx_pos => s_slot_idx,
             seg => seg,
