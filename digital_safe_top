@@ -1,0 +1,102 @@
+library IEEE;
+use IEEE.STD_LOGIC_1164.ALL;
+
+entity Digital_Safe_Top is
+    Port ( 
+        clk     : in  STD_LOGIC;                         -- Onboard 100MHz (Pin E3)
+        btnu    : in  STD_LOGIC;                         -- Reset (Pin M18)
+        btnl    : in  STD_LOGIC;                         -- Move Left / Increment (Pin P17)
+        btnr    : in  STD_LOGIC;                         -- Move Right / Decrement (Pin M17)
+        btnd    : in  STD_LOGIC;                         -- Save Digit (Pin P18)
+        sw      : in  STD_LOGIC_VECTOR (3 downto 0);    -- 4-bit binary input (Pins J15, L16, M13, R15)
+        seg     : out STD_LOGIC_VECTOR (6 downto 0);    -- 7-segment Cathodes
+        an      : out STD_LOGIC_VECTOR (3 downto 0);    -- 4 active-low Anodes
+        dp      : out STD_LOGIC;                         -- Decimal Point
+        led17_g : out STD_LOGIC;                         -- Safe is OPEN (Green LED)
+        led16_r : out STD_LOGIC                          -- Safe is LOCKED (Red LED)
+    );
+end Digital_Safe_Top;
+
+architecture Structural of Digital_Safe_Top is
+
+    --------------------------------------------------------------------
+    -- Vnitřní propojovací signály
+    --------------------------------------------------------------------
+    signal s_btnl_p    : std_logic; -- Pulse z levého tlačítka
+    signal s_btnr_p    : std_logic; -- Pulse z pravého tlačítka
+    signal s_btnd_p    : std_logic; -- Pulse z dolního tlačítka (zápis)
+    signal s_slot_idx  : std_logic_vector(1 downto 0);  -- Pozice kurzoru (0-3)
+    signal s_full_code : std_logic_vector(15 downto 0); -- Aktuální stav paměti trezoru
+
+begin
+
+    --------------------------------------------------------------------
+    -- DEBOUNCE: Ošetření zákmitů tlačítek
+    --------------------------------------------------------------------
+    DEBOUNCE_INST : entity work.debounce
+        port map (
+            clk          => clk,
+            rst          => btnu,
+            btnl_in      => btnl,
+            btnr_in      => btnr,
+            btnd_in      => btnd,
+            btnl_pressed => s_btnl_p,
+            btnr_pressed => s_btnr_p,
+            btnd_pressed => s_btnd_p
+        );
+
+    --------------------------------------------------------------------
+    -- COUNTER: Správa indexu pozice (kterou číslici editujeme)
+    --------------------------------------------------------------------
+    COUNTER_INST : entity work.counter
+        generic map (
+            G_BITS => 2
+        )
+        port map (
+            clk      => clk,
+            rst      => btnu,
+            en_inc   => s_btnl_p, -- Zvyšuje index (vlevo)
+            en_dec   => s_btnr_p, -- Snižuje index (vpravo)
+            slot_idx => s_slot_idx
+        );
+
+    --------------------------------------------------------------------
+    -- REGISTR: Paměťový modul pro uložení zadaného kódu
+    --------------------------------------------------------------------
+    REGISTR_INST : entity work.Registr
+        port map (
+            clk       => clk,
+            rst       => btnu,
+            idx_pos   => s_slot_idx,
+            sw_in     => sw,
+            write_en  => s_btnd_p,
+            full_code => s_full_code
+        );
+
+    --------------------------------------------------------------------
+    -- COMPARATOR: Kontrola zadaného kódu proti tajnému heslu
+    --------------------------------------------------------------------
+    COMPARATOR_INST : entity work.Comparator
+        port map (
+            clk        => clk,
+            rst        => btnu,
+            code_in    => s_full_code,
+            lock_open  => led17_g,
+            lock_close => led16_r
+        );
+
+    --------------------------------------------------------------------
+    -- DISPLAY_DRIVER: Zobrazení kódu a tečky (kurzoru) na displeji
+    --------------------------------------------------------------------
+    DISPLAY_INST : entity work.display_driver
+        port map (
+            clk     => clk,
+            rst     => btnu,
+            data_in => s_full_code,
+            seg     => seg,
+            anode   => an,
+            idx_pos => s_slot_idx,
+            dp      => dp
+        );
+
+end Structural;
