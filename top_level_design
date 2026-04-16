@@ -116,15 +116,17 @@ begin
             lock_close => led16_r
         );
 
-    -- 5. Display Driver
+    -- 5. Display Driver with Live Preview
     inst_display: display_driver
         port map (
-            clk => clk, rst => btnu,
-            data_in => s_full_code,
-            idx_pos => s_slot_idx,
-            seg => seg,
-            anode => s_an_4,  -- FIXED: Connected to internal signal
-            dp => dp
+            clk      => clk, 
+            rst      => btnu,
+            data_in  => s_full_code,
+            sw_in    => sw,           -- Pass the switches here!
+            idx_pos  => s_slot_idx,
+            seg      => seg,
+            anode    => s_an_4,
+            dp       => dp
         );
 
     ----------------------------------------------------------------
