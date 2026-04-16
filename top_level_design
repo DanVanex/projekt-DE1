@@ -4,13 +4,13 @@ use IEEE.STD_LOGIC_1164.ALL;
 entity Digital_Safe is
     Port ( 
         clk      : in  STD_LOGIC;                         -- System Clock
-        btnu      : in  STD_LOGIC;                         -- Reset Button
+        btnu     : in  STD_LOGIC;                         -- Reset Button
         sw       : in  STD_LOGIC_VECTOR (3 downto 0);     -- 4 Switches for digit entry
         btnr     : in  STD_LOGIC;                         -- Move Right
         btnl     : in  STD_LOGIC;                         -- Move Left
         btnd     : in  STD_LOGIC;                         -- Save Digit
         seg      : out STD_LOGIC_VECTOR (6 downto 0);     -- 7-segment display segments
-        an       : out STD_LOGIC_VECTOR (7 downto 0);     -- 4 Anodes
+        an       : out STD_LOGIC_VECTOR (7 downto 0);     -- 8 Anodes for Nexys A7
         dp       : out STD_LOGIC;                         -- Decimal Point
         led17_g  : out STD_LOGIC;                         -- Open Status
         led16_r  : out STD_LOGIC                          -- Locked Status
@@ -20,7 +20,7 @@ end Digital_Safe;
 architecture Structural of Digital_Safe is
 
     ----------------------------------------------------------------
-    -- Component Declarations
+    -- Component Declarations (Remains the same)
     ----------------------------------------------------------------
     component debounce is
         Port ( 
@@ -62,18 +62,18 @@ architecture Structural of Digital_Safe is
             data_in  : in STD_LOGIC_VECTOR (15 downto 0);
             idx_pos  : in STD_LOGIC_VECTOR (1 downto 0);
             seg      : out STD_LOGIC_VECTOR (6 downto 0);
-            anode    : out STD_LOGIC_VECTOR (3 downto 0);
+            anode    : out STD_LOGIC_VECTOR (3 downto 0); -- Driver only outputs 4
             dp       : out STD_LOGIC
         );
     end component;
 
     ----------------------------------------------------------------
-    -- Internal Signals (The "Wires")
+    -- Internal Signals
     ----------------------------------------------------------------
     signal s_btnl_p, s_btnr_p, s_btnd_p : std_logic;
-    signal s_an_4: std_logic_vector (3 downto 0);
     signal s_slot_idx : std_logic_vector(1 downto 0);
     signal s_full_code : std_logic_vector(15 downto 0);
+    signal s_an_4      : std_logic_vector(3 downto 0); -- Internal 4-bit anode wire
 
 begin
 
@@ -87,27 +87,27 @@ begin
             btnd_pressed => s_btnd_p
         );
 
-    -- 2. Navigation Counter (selects which digit to edit)
+    -- 2. Navigation Counter
     inst_counter: counter
         generic map ( G_BITS => 2 )
         port map (
             clk => clk, rst => btnu,
-            en_dec => s_btnr_p,  -- Decrement moves cursor Right
-            en_inc => s_btnl_p,  -- Increment moves cursor Left
+            en_dec => s_btnr_p, 
+            en_inc => s_btnl_p, 
             slot_idx => s_slot_idx
         );
 
-    -- 3. Register Storage (saves switches to the selected slot)
+    -- 3. Register Storage
     inst_registr: Registr
         port map (
             clk => clk, rst => btnu,
             idx_pos => s_slot_idx,
             sw_in => sw,
-            write_en => s_btnd_p, -- Only write when debounced button is pulsed
+            write_en => s_btnd_p,
             full_code => s_full_code
         );
 
-    -- 4. Comparator (checks against the secret PIN)
+    -- 4. Comparator
     inst_comparator: Comparator
         port map (
             clk => clk, rst => btnu,
@@ -116,15 +116,22 @@ begin
             lock_close => led16_r
         );
 
-    -- 5. Display Driver (shows the code and the decimal point cursor)
+    -- 5. Display Driver
     inst_display: display_driver
         port map (
             clk => clk, rst => btnu,
             data_in => s_full_code,
             idx_pos => s_slot_idx,
             seg => seg,
-            anode => an,
+            anode => s_an_4,  -- FIXED: Connected to internal signal
             dp => dp
         );
+
+    ----------------------------------------------------------------
+    -- FINAL OUTPUT GLUE
+    -- Drive the 4 active digits and DISABLE the other 4 on Nexys A7
+    ----------------------------------------------------------------
+    an(3 downto 0) <= s_an_4;   -- Active 4 digits from driver
+    an(7 downto 4) <= "1111";   -- Force the left 4 digits OFF (Active Low)
 
 end Structural;
