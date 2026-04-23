@@ -8,6 +8,6 @@
 - **Git:** Version control and documentation.
 
 ### References
-- **IEEE Standard 1076-2008:** VHDL Language Reference Manual.
+- **IEEE Standard 1076-2008:** VHDL Language Reference Manual  https://0x04.net/~mwk/vstd/ieee-1076-2008.pdf.
 - **Digilent Nexys A7 Reference Manual:** Hardware specifications and pinout.
 - **Shannon’s Sampling Theorem:** Basis for the digital debouncing algorithm.
