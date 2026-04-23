@@ -1,0 +1,2167 @@
+Gemini
+DE Project New
+New chat
+My stuff
+Gems
+Chats
+DE Project New
+ANT_Test_2
+IOT_Project
+AE2_Pomoc
+DE1_Project_Digital_Safe
+KS1_Lab 5_Protokol
+AI Assistant Offers Help
+
+Activity
+
+Settings and help
+Brno-Královo Pole, Czechia
+Based on your places (home)
+Update location
+Conversation with Gemini
+first of all 8 segments are on, we need only 4, and the decimal points move as 2 not 1 by one, so we basically can set 2 numbers at once
+
+This is actually great news because these are "classic" symptoms of mapping and timing issues. They are very easy to fix once you know where to look.
+
+Here is how we solve these two specific problems:
+
+1. The "8 Segments are On" Problem
+The Nexys A7 has 8 digits, but your VHDL code currently only knows about 4. Because the other 4 pins on the FPGA (an[7:4]) aren't being told what to do, they are likely defaulting to '0' (which is ON for common-anode displays).
+
+The Fix: Update your Top-Level file to handle all 8 bits of the anode bus.
+
+VHDL
+-- 1. In your Top-Level Entity, change 'an' to 8 bits:
+an : out STD_LOGIC_VECTOR (7 downto 0);
+
+-- 2. In your Architecture, create a 4-bit internal signal for the driver:
+signal s_an_4 : std_logic_vector(3 downto 0);
+
+-- 3. In your Port Map for inst_display:
+anode => s_an_4, -- Connect the driver to the 4-bit wire
+
+-- 4. Below the Port Maps, add these assignments:
+an(3 downto 0) <= s_an_4;   -- Right 4 digits (Active)
+an(7 downto 4) <= "1111";   -- Left 4 digits (FORCED OFF)
+2. The "DP Moves by 2" Problem
+If the decimal point is jumping two spots or selecting two numbers at once, there are usually two culprits:
+
+A. Double Triggering (The Most Likely)
+If the slot_idx jumps from 0 to 2 with one click, your counter is likely seeing two pulses.
+
+Check your Top-Level: Are you connecting the raw btnl / btnr to the counter?
+
+The Fix: Ensure the counter is connected to the s_btnl_p and s_btnr_p (the debounced pulses), not the raw buttons.
+
+B. Multiplexing Overlap (The "Ghosting" Fix)
+If you see two decimal points lit up at the same time, it means your display_driver is switching between digits faster than the hardware can turn the old one off.
+
+Check your display_driver: Is G_MAX set to 100,000?
+
+The Logic Fix: If the driver is too fast, you might see the DP from Digit 0 "bleeding" into Digit 1.
+
+One more thing to check: The "Save" Logic
+You mentioned you can "set 2 numbers at once." If your idx_pos is jumping, the registr is also getting that same jumpy index.
+
+Let's try this specific change in your Top-Level and see if it clears the "extra" displays:
+
+VHDL
+-- Update this line in your Top-Level to clear the extra 4 digits
+an <= "1111" & s_an_4; -- Concatenates 4 bits of 'OFF' with your 4 active anodes
+Does the Decimal Point jump immediately when you press the button, or does it just look blurry? If it jumps instantly, we definitely need to look at the connection between the Debounce and the Counter.
+
+could you repair this display driver file?
+
+
+
+library IEEE;
+
+use IEEE.STD_LOGIC_1164.ALL;
+
+
+
+entity display_driver is
+
+    Port ( 
+
+        clk     : in  STD_LOGIC;
+
+        rst     : in  STD_LOGIC;
+
+        data_in : in  STD_LOGIC_VECTOR (15 downto 0);
+
+        seg     : out STD_LOGIC_VECTOR (6 downto 0);
+
+        anode   : out STD_LOGIC_VECTOR (3 downto 0);
+
+        idx_pos : in  STD_LOGIC_VECTOR (1 downto 0); 
+
+        dp      : out STD_LOGIC                     
+
+    );
+
+end display_driver;
+
+
+
+architecture Behavioral of display_driver is
+
+
+
+    component clk_en is
+
+        generic ( G_MAX : positive );
+
+        port (
+
+            clk : in  std_logic;
+
+            rst : in  std_logic;
+
+            ce  : out std_logic
+
+        );
+
+    end component clk_en;
+
+        
+
+    component counter is
+
+        generic ( G_BITS : positive );
+
+        port (
+
+            clk      : in  std_logic;
+
+            rst      : in  std_logic;
+
+            en_dec   : in  std_logic;
+
+            en_inc   : in  std_logic;
+
+            slot_idx : out std_logic_vector(G_BITS - 1 downto 0)
+
+        );
+
+    end component counter;
+
+    
+
+    component Bin_2_Seg is
+
+        Port ( 
+
+            bin : in  STD_LOGIC_VECTOR (3 downto 0);
+
+            seg : out STD_LOGIC_VECTOR (6 downto 0)
+
+        );
+
+    end component Bin_2_Seg;
+
+    
+
+    -- Internal signals
+
+    signal sig_en    : std_logic;
+
+    signal sig_digit : std_logic_vector(1 downto 0); 
+
+    signal sig_bin   : std_logic_vector(3 downto 0);
+
+  
+
+begin
+
+
+
+        clock_0 : clk_en
+
+        generic map ( G_MAX => 100_000 )  -- ZMĚNĚNO ZE 100_000 NA 10 PRO SIMULACI
+
+        port map (
+
+            clk => clk,
+
+            rst => rst,
+
+            ce  => sig_en
+
+        );
+
+        
+
+    counter_0 : counter
+
+        generic map ( G_BITS => 2 )
+
+        port map (
+
+            clk      => clk,
+
+            rst      => rst,
+
+            en_dec   => '0',      -- V displeji nepočítáme pozpátku, uzemníme
+
+            en_inc   => sig_en,   -- Signál z děličky zapojíme na krok vpřed
+
+            slot_idx => sig_digit -- Výstup pro výběr číslice
+
+        );
+
+
+
+    with sig_digit select
+
+        sig_bin <= data_in(3 downto 0)   when "00", 
+
+                   data_in(7 downto 4)   when "01", 
+
+                   data_in(11 downto 8)  when "10", 
+
+                   data_in(15 downto 12) when others; 
+
+
+
+   bin2seg0 : Bin_2_Seg
+
+        port map (
+
+            bin => sig_bin,
+
+            seg => seg
+
+        );
+
+
+
+    p_display_control : process (sig_digit, idx_pos) is
+
+    begin
+
+        
+
+        anode <= "1111";
+
+        dp    <= '1'; 
+
+        
+
+        
+
+        case sig_digit is
+
+            when "00" => anode <= "1110"; 
+
+            when "01" => anode <= "1101";
+
+            when "10" => anode <= "1011";
+
+            when "11" => anode <= "0111"; 
+
+            when others => anode <= "1111";
+
+        end case;
+
+
+
+        
+
+        if (sig_digit = idx_pos) then
+
+            dp <= '0'; -- '0' is ON
+
+        else
+
+            dp <= '1';
+
+        end if;
+
+        
+
+    end process p_display_control;
+
+
+
+end Behavioral;
+
+To fix the issues you're seeing—specifically the ghosting/overlap and the Decimal Point (DP) behavior—we need to make the display_driver more "stable" by moving the control logic into a synchronous process.
+
+When logic is purely combinational (like your current p_display_control), the transitions between digits can be "messy," causing that "2 numbers at once" look. By using the clock, we ensure the anode and segments switch at the exact same moment.
+
+The Repaired display_driver.vhd
+VHDL
+library IEEE;
+use IEEE.STD_LOGIC_1164.ALL;
+
+entity display_driver is
+    Port ( 
+        clk     : in  STD_LOGIC;
+        rst     : in  STD_LOGIC;
+        data_in : in  STD_LOGIC_VECTOR (15 downto 0);
+        seg     : out STD_LOGIC_VECTOR (6 downto 0);
+        anode   : out STD_LOGIC_VECTOR (3 downto 0);
+        idx_pos : in  STD_LOGIC_VECTOR (1 downto 0); 
+        dp      : out STD_LOGIC                      
+    );
+end display_driver;
+
+architecture Behavioral of display_driver is
+
+    component clk_en is
+        generic ( G_MAX : positive );
+        port (
+            clk : in  std_logic;
+            rst : in  std_logic;
+            ce  : out std_logic
+        );
+    end component clk_en;
+        
+    component counter is
+        generic ( G_BITS : positive );
+        port (
+            clk      : in  std_logic;
+            rst      : in  std_logic;
+            en_dec   : in  std_logic;
+            en_inc   : in  std_logic;
+            slot_idx : out std_logic_vector(G_BITS - 1 downto 0)
+        );
+    end component counter;
+    
+    component Bin_2_Seg is
+        Port ( 
+            bin : in  STD_LOGIC_VECTOR (3 downto 0);
+            seg : out STD_LOGIC_VECTOR (6 downto 0)
+        );
+    end component Bin_2_Seg;
+    
+    signal sig_en    : std_logic;
+    signal sig_digit : std_logic_vector(1 downto 0); 
+    signal sig_bin   : std_logic_vector(3 downto 0);
+  
+begin
+
+    -- Standard refresh rate: 1ms per digit at 100MHz
+    clock_0 : clk_en
+        generic map ( G_MAX => 100_000 ) 
+        port map (
+            clk => clk,
+            rst => rst,
+            ce  => sig_en
+        );
+        
+    -- Scanning counter: cycles 00 -> 01 -> 10 -> 11
+    counter_0 : counter
+        generic map ( G_BITS => 2 )
+        port map (
+            clk      => clk,
+            rst      => rst,
+            en_dec   => '0',
+            en_inc   => sig_en,
+            slot_idx => sig_digit
+        );
+
+    -- Multiplexer for data
+    with sig_digit select
+        sig_bin <= data_in(3 downto 0)   when "00", 
+                   data_in(7 downto 4)   when "01", 
+                   data_in(11 downto 8)  when "10", 
+                   data_in(15 downto 12) when others; 
+
+    bin2seg0 : Bin_2_Seg
+        port map (
+            bin => sig_bin,
+            seg => seg
+        );
+
+    --------------------------------------------------------------------
+    -- SYNCHRONOUS CONTROL PROCESS
+    -- This prevents "ghosting" by syncing anode and DP changes to the clock
+    --------------------------------------------------------------------
+    p_display_control : process (clk) is
+    begin
+        if rising_edge(clk) then
+            if rst = '1' then
+                anode <= "1111";
+                dp    <= '1';
+            else
+                -- 1. Anode Selection
+                case sig_digit is
+                    when "00" => anode <= "1110"; 
+                    when "01" => anode <= "1101";
+                    when "10" => anode <= "1011";
+                    when "11" => anode <= "0111"; 
+                    when others => anode <= "1111";
+                end case;
+
+                -- 2. Decimal Point (Cursor) Logic
+                -- Only light up DP if the scanned digit matches our selected index
+                if (sig_digit = idx_pos) then
+                    dp <= '0'; -- ON
+                else
+                    dp <= '1'; -- OFF
+                end if;
+            end if;
+        end if;
+    end process p_display_control;
+
+end Behavioral;
+What was changed?
+Clock Synchronicity: The anode and dp signals are now updated inside a rising_edge(clk) block. This ensures that the moment the counter_0 changes the digit, the hardware switches the active display. This should stop the "bleeding" of numbers into each other.
+
+Reset added to Process: I included the rst signal in the control process to ensure the display blanks out properly when you reset the safe.
+
+Timing Consistency: Kept G_MAX at 100_000. If it's still jumping, double-check that your clk is indeed 100 MHz.
+
+Important: The "Extra 4 Segments" Fix
+Even with this repaired driver, you will still see the other 4 digits on your Nexys board unless you update your Top-Level file.
+
+Make sure your Top-Level code looks like this for the Anode output:
+
+VHDL
+-- In your Digital_Safe top-level architecture:
+signal s_an_4 : std_logic_vector(3 downto 0);
+
+-- ... internal connections ...
+
+inst_display: display_driver
+    port map (
+        -- ... other ports ...
+        anode => s_an_4, -- Connect the driver's 4-bit output here
+        -- ...
+    );
+
+-- THIS LINE TURNS OFF THE LEFT 4 DIGITS
+an <= "1111" & s_an_4; 
+By concatenating "1111" (which means OFF for anodes 7-4), you force the left side of the board to stay dark, leaving only your 4-digit safe active on the right!
+
+and please repair our top level as well please:
+
+
+
+library IEEE;
+
+use IEEE.STD_LOGIC_1164.ALL;
+
+
+
+entity Digital_Safe is
+
+    Port ( 
+
+        clk      : in  STD_LOGIC;                         -- System Clock
+
+        btnu      : in  STD_LOGIC;                         -- Reset Button
+
+        sw       : in  STD_LOGIC_VECTOR (3 downto 0);     -- 4 Switches for digit entry
+
+        btnr     : in  STD_LOGIC;                         -- Move Right
+
+        btnl     : in  STD_LOGIC;                         -- Move Left
+
+        btnd     : in  STD_LOGIC;                         -- Save Digit
+
+        seg      : out STD_LOGIC_VECTOR (6 downto 0);     -- 7-segment display segments
+
+        an       : out STD_LOGIC_VECTOR (7 downto 0);     -- 4 Anodes
+
+        dp       : out STD_LOGIC;                         -- Decimal Point
+
+        led17_g  : out STD_LOGIC;                         -- Open Status
+
+        led16_r  : out STD_LOGIC                          -- Locked Status
+
+    );
+
+end Digital_Safe;
+
+
+
+architecture Structural of Digital_Safe is
+
+
+
+    ----------------------------------------------------------------
+
+    -- Component Declarations
+
+    ----------------------------------------------------------------
+
+    component debounce is
+
+        Port ( 
+
+            clk : in STD_LOGIC; rst : in STD_LOGIC;
+
+            btnl_in, btnr_in, btnd_in : in STD_LOGIC;
+
+            btnl_pressed, btnr_pressed, btnd_pressed : out STD_LOGIC
+
+        );
+
+    end component;
+
+
+
+    component counter is
+
+        generic ( G_BITS : positive );
+
+        port (
+
+            clk, rst, en_dec, en_inc : in std_logic;
+
+            slot_idx : out std_logic_vector(G_BITS - 1 downto 0)
+
+        );
+
+    end component;
+
+
+
+    component Registr is
+
+        Port ( 
+
+            clk, rst : in STD_LOGIC;
+
+            idx_pos  : in STD_LOGIC_VECTOR (1 downto 0);
+
+            sw_in    : in STD_LOGIC_VECTOR (3 downto 0);
+
+            write_en : in STD_LOGIC;
+
+            full_code : out STD_LOGIC_VECTOR (15 downto 0)
+
+        );
+
+    end component;
+
+
+
+    component Comparator is
+
+        Port ( 
+
+            clk, rst : in STD_LOGIC;
+
+            code_in  : in STD_LOGIC_VECTOR (15 downto 0);
+
+            lock_open, lock_close : out STD_LOGIC
+
+        );
+
+    end component;
+
+
+
+    component display_driver is
+
+        Port ( 
+
+            clk, rst : in STD_LOGIC;
+
+            data_in  : in STD_LOGIC_VECTOR (15 downto 0);
+
+            idx_pos  : in STD_LOGIC_VECTOR (1 downto 0);
+
+            seg      : out STD_LOGIC_VECTOR (6 downto 0);
+
+            anode    : out STD_LOGIC_VECTOR (3 downto 0);
+
+            dp       : out STD_LOGIC
+
+        );
+
+    end component;
+
+
+
+    ----------------------------------------------------------------
+
+    -- Internal Signals (The "Wires")
+
+    ----------------------------------------------------------------
+
+    signal s_btnl_p, s_btnr_p, s_btnd_p : std_logic;
+
+    signal s_an_4: std_logic_vector (3 downto 0);
+
+    signal s_slot_idx : std_logic_vector(1 downto 0);
+
+    signal s_full_code : std_logic_vector(15 downto 0);
+
+
+
+begin
+
+
+
+    -- 1. Debounce the buttons
+
+    inst_debounce: debounce
+
+        port map (
+
+            clk => clk, rst => btnu,
+
+            btnl_in => btnl, btnr_in => btnr, btnd_in => btnd,
+
+            btnl_pressed => s_btnl_p, 
+
+            btnr_pressed => s_btnr_p, 
+
+            btnd_pressed => s_btnd_p
+
+        );
+
+
+
+    -- 2. Navigation Counter (selects which digit to edit)
+
+    inst_counter: counter
+
+        generic map ( G_BITS => 2 )
+
+        port map (
+
+            clk => clk, rst => btnu,
+
+            en_dec => s_btnr_p,  -- Decrement moves cursor Right
+
+            en_inc => s_btnl_p,  -- Increment moves cursor Left
+
+            slot_idx => s_slot_idx
+
+        );
+
+
+
+    -- 3. Register Storage (saves switches to the selected slot)
+
+    inst_registr: Registr
+
+        port map (
+
+            clk => clk, rst => btnu,
+
+            idx_pos => s_slot_idx,
+
+            sw_in => sw,
+
+            write_en => s_btnd_p, -- Only write when debounced button is pulsed
+
+            full_code => s_full_code
+
+        );
+
+
+
+    -- 4. Comparator (checks against the secret PIN)
+
+    inst_comparator: Comparator
+
+        port map (
+
+            clk => clk, rst => btnu,
+
+            code_in => s_full_code,
+
+            lock_open => led17_g,
+
+            lock_close => led16_r
+
+        );
+
+
+
+    -- 5. Display Driver (shows the code and the decimal point cursor)
+
+    inst_display: display_driver
+
+        port map (
+
+            clk => clk, rst => btnu,
+
+            data_in => s_full_code,
+
+            idx_pos => s_slot_idx,
+
+            seg => seg,
+
+            anode => an,
+
+            dp => dp
+
+        );
+
+
+
+end Structural;
+
+Here is the repaired Top-Level design.
+
+The main issue in your current version was a "Port Mapping" mismatch in Module 5 (inst_display). You had anode => an, but your entity port is an(7 downto 0) and your driver only outputs 4 bits. I have integrated the s_an_4 signal to properly "glue" the 4-bit driver to the 8-bit board display and force the unused digits off.
+
+Digital_Safe.vhd (Repaired)
+VHDL
+library IEEE;
+use IEEE.STD_LOGIC_1164.ALL;
+
+entity Digital_Safe is
+    Port ( 
+        clk      : in  STD_LOGIC;                         -- System Clock
+        btnu     : in  STD_LOGIC;                         -- Reset Button
+        sw       : in  STD_LOGIC_VECTOR (3 downto 0);     -- 4 Switches for digit entry
+        btnr     : in  STD_LOGIC;                         -- Move Right
+        btnl     : in  STD_LOGIC;                         -- Move Left
+        btnd     : in  STD_LOGIC;                         -- Save Digit
+        seg      : out STD_LOGIC_VECTOR (6 downto 0);     -- 7-segment display segments
+        an       : out STD_LOGIC_VECTOR (7 downto 0);     -- 8 Anodes for Nexys A7
+        dp       : out STD_LOGIC;                         -- Decimal Point
+        led17_g  : out STD_LOGIC;                         -- Open Status
+        led16_r  : out STD_LOGIC                          -- Locked Status
+    );
+end Digital_Safe;
+
+architecture Structural of Digital_Safe is
+
+    ----------------------------------------------------------------
+    -- Component Declarations (Remains the same)
+    ----------------------------------------------------------------
+    component debounce is
+        Port ( 
+            clk : in STD_LOGIC; rst : in STD_LOGIC;
+            btnl_in, btnr_in, btnd_in : in STD_LOGIC;
+            btnl_pressed, btnr_pressed, btnd_pressed : out STD_LOGIC
+        );
+    end component;
+
+    component counter is
+        generic ( G_BITS : positive );
+        port (
+            clk, rst, en_dec, en_inc : in std_logic;
+            slot_idx : out std_logic_vector(G_BITS - 1 downto 0)
+        );
+    end component;
+
+    component Registr is
+        Port ( 
+            clk, rst : in STD_LOGIC;
+            idx_pos  : in STD_LOGIC_VECTOR (1 downto 0);
+            sw_in    : in STD_LOGIC_VECTOR (3 downto 0);
+            write_en : in STD_LOGIC;
+            full_code : out STD_LOGIC_VECTOR (15 downto 0)
+        );
+    end component;
+
+    component Comparator is
+        Port ( 
+            clk, rst : in STD_LOGIC;
+            code_in  : in STD_LOGIC_VECTOR (15 downto 0);
+            lock_open, lock_close : out STD_LOGIC
+        );
+    end component;
+
+    component display_driver is
+        Port ( 
+            clk, rst : in STD_LOGIC;
+            data_in  : in STD_LOGIC_VECTOR (15 downto 0);
+            idx_pos  : in STD_LOGIC_VECTOR (1 downto 0);
+            seg      : out STD_LOGIC_VECTOR (6 downto 0);
+            anode    : out STD_LOGIC_VECTOR (3 downto 0); -- Driver only outputs 4
+            dp       : out STD_LOGIC
+        );
+    end component;
+
+    ----------------------------------------------------------------
+    -- Internal Signals
+    ----------------------------------------------------------------
+    signal s_btnl_p, s_btnr_p, s_btnd_p : std_logic;
+    signal s_slot_idx : std_logic_vector(1 downto 0);
+    signal s_full_code : std_logic_vector(15 downto 0);
+    signal s_an_4      : std_logic_vector(3 downto 0); -- Internal 4-bit anode wire
+
+begin
+
+    -- 1. Debounce the buttons
+    inst_debounce: debounce
+        port map (
+            clk => clk, rst => btnu,
+            btnl_in => btnl, btnr_in => btnr, btnd_in => btnd,
+            btnl_pressed => s_btnl_p, 
+            btnr_pressed => s_btnr_p, 
+            btnd_pressed => s_btnd_p
+        );
+
+    -- 2. Navigation Counter
+    inst_counter: counter
+        generic map ( G_BITS => 2 )
+        port map (
+            clk => clk, rst => btnu,
+            en_dec => s_btnr_p, 
+            en_inc => s_btnl_p, 
+            slot_idx => s_slot_idx
+        );
+
+    -- 3. Register Storage
+    inst_registr: Registr
+        port map (
+            clk => clk, rst => btnu,
+            idx_pos => s_slot_idx,
+            sw_in => sw,
+            write_en => s_btnd_p,
+            full_code => s_full_code
+        );
+
+    -- 4. Comparator
+    inst_comparator: Comparator
+        port map (
+            clk => clk, rst => btnu,
+            code_in => s_full_code,
+            lock_open => led17_g,
+            lock_close => led16_r
+        );
+
+    -- 5. Display Driver
+    inst_display: display_driver
+        port map (
+            clk => clk, rst => btnu,
+            data_in => s_full_code,
+            idx_pos => s_slot_idx,
+            seg => seg,
+            anode => s_an_4,  -- FIXED: Connected to internal signal
+            dp => dp
+        );
+
+    ----------------------------------------------------------------
+    -- FINAL OUTPUT GLUE
+    -- Drive the 4 active digits and DISABLE the other 4 on Nexys A7
+    ----------------------------------------------------------------
+    an(3 downto 0) <= s_an_4;   -- Active 4 digits from driver
+    an(7 downto 4) <= "1111";   -- Force the left 4 digits OFF (Active Low)
+
+end Structural;
+What was fixed?
+Anode Connection: In your previous code, you tried to connect anode => an inside the port map. Since an is 8 bits and anode is 4 bits, the synthesis tool would have failed or behaved unpredictably. Now, s_an_4 carries the signal from the driver, and we manually assign it to the lower half of the 8-bit bus.
+
+Display Blanking: an(7 downto 4) <= "1111"; solves your problem of all 8 segments being on. This forces the transistors for the left 4 digits to stay closed.
+
+Port Mapping Consistency: Made sure all signal names match between the component declarations and the port map.
+
+Try generating the bitstream with this version and the repaired display_driver. That should clean up the visual "noise" and restrict the safe to just the right-hand side of your Nexys board!
+
+it also reads all the hexadecimal numbers, so we can see abcdef on the segments...
+
+That is actually a great feature! Since your Bin_2_Seg decoder handles x"A" through x"F", it means your 4 switches can represent any hexadecimal value from 0 to 15.
+
+If you are seeing those letters, it confirms that your Data Bus (full_code) and your Decoder are working perfectly.
+
+A Quick Security Tip
+Since your Comparator is currently hardcoded to:
+constant C_SECRET_PIN : std_logic_vector(15 downto 0) := x"1234";
+
+The safe will only open if you set the switches to 1, 2, 3, and 4 respectively. If you wanted to make the code harder to guess, you could change it to something like x"BEEF" or x"A1B2".
+
+Final Troubleshooting Checklist
+Now that the Top-Level and Display Driver are repaired, here is what you should see on the board:
+
+The Left 4 Digits: Should now be completely dark.
+
+The Right 4 Digits: Should show your 4-digit code.
+
+The Decimal Point: Should only be under one digit at a time.
+
+Navigation: Pressing btnl or btnr should move that single Decimal Point left or right without skipping digits.
+
+Saving: Changing the switches and pressing btnd should update only the digit where the Decimal Point is currently located.
+
+How does it look now? Is the Decimal Point finally behaving as a single "cursor," and did the extra 4 digits turn off?
+
+now it shows only one dp, but sometimes it skips a dp, so we have a problem with our debounce
+
+That "skipping" behavior is a classic sign that your debounce timer is too fast or the clock enable isn't firing correctly. When the debounce is too fast, a single mechanical button press (which "bounces" for several milliseconds) looks like 2 or 3 separate presses to the FPGA.
+
+Since the DP moves by two, your counter is receiving multiple pulses for one physical click.
+
+The Fix: Adjusting the Debounce Timing
+In your debounce module, we need to check two constants: C_MAX and C_SHIFT_LEN.
+
+C_MAX: This controls how often we "sample" the button.
+
+C_SHIFT_LEN: This is how many consecutive identical samples we need to see before we believe the button is actually pressed.
+
+If you are using a 100 MHz clock (standard for Nexys A7), here is the math for a stable 20ms debounce:
+
+Set C_MAX to 250,000. (This samples every 2.5ms).
+
+Set C_SHIFT_LEN to 8. (8 samples × 2.5ms = 20ms of required stability).
+
+Updated debounce Logic
+Check these specific lines in your debounce.vhd:
+
+VHDL
+architecture Behavioral of debounce is
+
+    -- INCREASE THESE FOR BETTER STABILITY
+    constant C_SHIFT_LEN : positive := 8;       -- Require 8 stable samples
+    constant C_MAX       : positive := 250_000; -- Sample every 2.5ms (at 100MHz)
+
+    -- ... rest of your signals ...
+Why it's still skipping (The "Pulse" Check)
+If you update those constants and it still skips, there is one other place to look: The Edge Detector. In your debounce code, you have:
+
+VHDL
+btnl_pressed <= debounced(2) and not(delayed(2));
+This is a "Rising Edge Detector." It should only stay '1' for exactly one clock cycle (10ns).
+
+Crucial Check: In your Top-Level, make sure you are using the clk (100MHz) for the counter, not the slow sig_en. If the counter is running on a slow clock, that "one-cycle pulse" might actually last long enough to be counted twice.
+
+Summary of the Fix
+Open debounce.vhd.
+
+Change C_MAX to 250,000.
+
+Change C_SHIFT_LEN to 8.
+
+Re-synthesize and generate bitstream.
+
+Mechanical buttons are messy! 20ms-40ms is the standard "waiting period" to make sure a human finger has finished its "bouncing" on the metal contact. Try those values and the DP should move exactly one step per click.
+
+okay, we forgot that, how can we make the program only work for numbers 0-9, and not use the hexadecimal ones?
+
+To restrict the system to decimal numbers (0−9), you have two choices: either prevent the "illegal" numbers from being saved in the register, or change how the switches are interpreted.
+
+The cleanest and most user-friendly way is to modify the Registr module. We can add a "guard" that only allows the write operation to happen if the switches are currently showing a value less than or equal to 9.
+
+1. Updating the Registr Module
+We will modify the elsif write_en = '1' block. By adding a check for unsigned(sw_in) <= 9, the safe will simply "ignore" the button press if the user has switches set to A, B, C, D, E, or F.
+
+VHDL
+-- Add this library at the top if not already there
+use IEEE.NUMERIC_STD.ALL;
+
+-- Inside your p_register_write process:
+elsif write_en = '1' then
+    -- Check if the switch value is a valid decimal (0-9)
+    if (unsigned(sw_in) <= 9) then 
+        case idx_pos is
+            when "00"   => sig_reg0 <= sw_in;
+            when "01"   => sig_reg1 <= sw_in;
+            when "10"   => sig_reg2 <= sw_in;
+            when "11"   => sig_reg3 <= sw_in;
+            when others => null;
+        end case;
+    else
+        -- Optional: You could trigger a "error" flash here, 
+        -- but usually just doing nothing is sufficient.
+        null; 
+    end if;
+end if;
+2. Visual Feedback (Optional but Recommended)
+If you want the user to know that A-F are "invalid," you can modify your Bin_2_Seg module. Instead of showing the letters A-F, you can make the display show a dash (-) or stay blank for values above 9.
+
+Updated Bin_2_Seg logic:
+
+VHDL
+case bin is
+    when x"0" => seg <= "0000001";
+    when x"1" => seg <= "1001111";
+    when x"2" => seg <= "0010010";
+    when x"3" => seg <= "0000110";
+    when x"4" => seg <= "1001100";
+    when x"5" => seg <= "0100100";
+    when x"6" => seg <= "0100000";
+    when x"7" => seg <= "0001111";
+    when x"8" => seg <= "0000000";
+    when x"9" => seg <= "0000100";
+    -- If switches are A-F, show a dash to indicate "Invalid"
+    when others => seg <= "1111110"; -- Only the G segment (middle bar)
+end case;
+Why this works better than other methods:
+Hardware Safety: You don't have to change your switches or physical layout.
+
+Logic Integrity: The full_code signal remains 16 bits (4 bits per digit), which is standard and easy to manage.
+
+User Experience: If a user accidentally flips switches to 1010 (A) and hits save, the safe just ignores it, preventing a "corrupted" PIN from being stored.
+
+Which approach do you prefer? Just the "silent" block in the register, or the visual "dash" feedback as well?
+
+is it possible, so we could see the numbers we are changing like live, without pushing the btnd, but we like need to fix that number with the btnd, so it could be saved?
+
+That is a great idea for the user interface! Right now, the display only shows what is already in the memory. To see the numbers "live," we need to change the display_driver logic so it acts like a "preview."
+
+The Logic Change
+Basically, we want the display to say:
+
+"If this is the digit the user is currently looking at (idx_pos), show the switches (sw)."
+
+"For all other digits, show what is saved in the memory (data_in)."
+
+1. Update the display_driver Module
+We need to add the switches as an input to the driver and update the multiplexer logic.
+
+Updated Entity:
+
+VHDL
+entity display_driver is
+    Port ( 
+        clk      : in  STD_LOGIC;
+        rst      : in  STD_LOGIC;
+        data_in  : in  STD_LOGIC_VECTOR (15 downto 0);
+        sw_in    : in  STD_LOGIC_VECTOR (3 downto 0); -- ADDED THIS
+        seg      : out STD_LOGIC_VECTOR (6 downto 0);
+        anode    : out STD_LOGIC_VECTOR (3 downto 0);
+        idx_pos  : in  STD_LOGIC_VECTOR (1 downto 0); 
+        dp       : out STD_LOGIC                      
+    );
+end display_driver;
+Updated Multiplexer (Inside Architecture):
+We change the with...select to a process with an if statement to handle the "Preview" logic.
+
+VHDL
+-- Replace the old "with sig_digit select" with this:
+p_mux_preview : process(sig_digit, idx_pos, data_in, sw_in)
+begin
+    if (sig_digit = idx_pos) then
+        -- If we are scanning the digit the user is currently editing, 
+        -- show the LIVE switch value
+        sig_bin <= sw_in;
+    else
+        -- Otherwise, show the saved value from the register
+        case sig_digit is
+            when "00" => sig_bin <= data_in(3 downto 0);
+            when "01" => sig_bin <= data_in(7 downto 4);
+            when "10" => sig_bin <= data_in(11 downto 8);
+            when others => sig_bin <= data_in(15 downto 12);
+        end case;
+    end if;
+end process p_mux_preview;
+2. Update the Top-Level Design
+Now you just need to connect the switches to this new port in your Digital_Safe.vhd.
+
+VHDL
+inst_display: display_driver
+    port map (
+        clk     => clk, 
+        rst     => btnu,
+        data_in => s_full_code,
+        sw_in   => sw,           -- Connect physical switches here
+        idx_pos => s_slot_idx,
+        seg     => seg,
+        anode   => s_an_4,
+        dp      => dp
+    );
+How this works on the board:
+Cursor: You move the Decimal Point to Digit 2.
+
+Live Preview: As you flip the switches, Digit 2 changes immediately on the display, but the Comparator still sees the old saved value (because the Registr hasn't changed yet).
+
+Commit: Once you like the number (e.g., 7), you press btnd.
+
+Save: The Registr captures the 7. Now the "Live" value and the "Saved" value are the same.
+
+Security: Only after you press btnd does the Green LED potentially turn on, because that's when the memory actually updates.
+
+Restricting to 0-9?
+If you still want to restrict it to 0-9, make sure your Bin_2_Seg shows a dash or blank for values above 9. That way, if a user selects "E" on the switches, the live preview will show a dash, warning them that they can't save that number.
+
+Does this "Preview" mode sound like what you were looking for?
+
+no we can leave the hexadecimal numbers for now...
+
+That simplifies things! Keeping the hex digits makes the project feel much more like a "hacker" safe, and it ensures your Bin_2_Seg and Registr modules don't need any complex filtering logic.
+
+To implement the "Live Preview" feature we discussed (where you see the numbers change as you flip switches, but they only "save" when you hit the button), here is the finalized code for the two modules you need to update.
+
+1. The Repaired display_driver.vhd
+I have added the sw_in port and the preview logic. I also kept the synchronous process for the anode and dp to keep the display stable.
+
+VHDL
+library IEEE;
+use IEEE.STD_LOGIC_1164.ALL;
+
+entity display_driver is
+    Port ( 
+        clk      : in  STD_LOGIC;
+        rst      : in  STD_LOGIC;
+        data_in  : in  STD_LOGIC_VECTOR (15 downto 0);
+        sw_in    : in  STD_LOGIC_VECTOR (3 downto 0); -- Input for Live Preview
+        seg      : out STD_LOGIC_VECTOR (6 downto 0);
+        anode    : out STD_LOGIC_VECTOR (3 downto 0);
+        idx_pos  : in  STD_LOGIC_VECTOR (1 downto 0); 
+        dp       : out STD_LOGIC                      
+    );
+end display_driver;
+
+architecture Behavioral of display_driver is
+
+    component clk_en is
+        generic ( G_MAX : positive );
+        port ( clk, rst : in std_logic; ce : out std_logic );
+    end component;
+        
+    component counter is
+        generic ( G_BITS : positive );
+        port ( clk, rst, en_dec, en_inc : in std_logic; slot_idx : out std_logic_vector(G_BITS - 1 downto 0) );
+    end component;
+    
+    component Bin_2_Seg is
+        Port ( bin : in STD_LOGIC_VECTOR (3 downto 0); seg : out STD_LOGIC_VECTOR (6 downto 0) );
+    end component;
+    
+    signal sig_en    : std_logic;
+    signal sig_digit : std_logic_vector(1 downto 0); 
+    signal sig_bin   : std_logic_vector(3 downto 0);
+  
+begin
+
+    clock_0 : clk_en
+        generic map ( G_MAX => 100_000 ) 
+        port map ( clk => clk, rst => rst, ce => sig_en );
+        
+    counter_0 : counter
+        generic map ( G_BITS => 2 )
+        port map ( clk => clk, rst => rst, en_dec => '0', en_inc => sig_en, slot_idx => sig_digit );
+
+    --------------------------------------------------------------------
+    -- PREVIEW LOGIC
+    --------------------------------------------------------------------
+    p_mux_preview : process(sig_digit, idx_pos, data_in, sw_in)
+    begin
+        if (sig_digit = idx_pos) then
+            -- Show the LIVE switch value for the digit we are editing
+            sig_bin <= sw_in;
+        else
+            -- Show the SAVED value for the other three digits
+            case sig_digit is
+                when "00" => sig_bin <= data_in(3 downto 0);
+                when "01" => sig_bin <= data_in(7 downto 4);
+                when "10" => sig_bin <= data_in(11 downto 8);
+                when others => sig_bin <= data_in(15 downto 12);
+            end case;
+        end if;
+    end process p_mux_preview;
+
+    bin2seg0 : Bin_2_Seg
+        port map ( bin => sig_bin, seg => seg );
+
+    p_display_control : process (clk) is
+    begin
+        if rising_edge(clk) then
+            if rst = '1' then
+                anode <= "1111";
+                dp    <= '1';
+            else
+                case sig_digit is
+                    when "00" => anode <= "1110"; 
+                    when "01" => anode <= "1101";
+                    when "10" => anode <= "1011";
+                    when "11" => anode <= "0111"; 
+                    when others => anode <= "1111";
+                end case;
+
+                if (sig_digit = idx_pos) then
+                    dp <= '0'; -- Cursor ON
+                else
+                    dp <= '1'; -- Cursor OFF
+                end if;
+            end if;
+        end if;
+    end process p_display_control;
+
+end Behavioral;
+2. The Updated Top-Level Call
+In your Digital_Safe.vhd, simply update the inst_display port map to include the switches:
+
+VHDL
+    -- 5. Display Driver with Live Preview
+    inst_display: display_driver
+        port map (
+            clk      => clk, 
+            rst      => btnu,
+            data_in  => s_full_code,
+            sw_in    => sw,           -- Pass the switches here!
+            idx_pos  => s_slot_idx,
+            seg      => seg,
+            anode    => s_an_4,
+            dp       => dp
+        );
+Why this is better:
+Intuitive: Users hate "blindly" saving values. Now they can see "A" on the display, then decide they want "B," flip the switch, see the "B," and then hit btnd to lock it in.
+
+Verification: It makes it much easier to verify that your Bin_2_Seg mapping is correct without having to save a value first.
+
+One final reminder: Since you are using the Nexys A7, if the "skipping" button problem persists after increasing the debounce constants, ensure your counter module is running on the main clk (100MHz) and not a slower clock enable. If it's on a slow clock, it might "miss" the single-cycle pulse from the edge detector or count it multiple times.
+
+Give this a spin on the board! How's the "Preview" feel?
+
+we got errors, like sw_in is not declared in display driver, and that idx_pos has no actual or default value
+
+Ah, the classic VHDL "missing handshake" errors! These happen because we changed the Entity (the interface) of the display_driver, but the Top-Level (the wrapper) still thinks it's looking at the old version.
+
+Here is why those specific errors are happening and how to clear them:
+
+1. "sw_in is not declared in display_driver"
+This happens if you added sw_in to the Port Map (the connection) in the Top-Level, but forgot to update the Component Declaration at the top of the architecture. In VHDL, you have to define the "blueprint" (component) and the "actual part" (entity) identically.
+
+2. "idx_pos has no actual or default value"
+This usually means there is a mismatch in the port order or a missing comma in the port map. If VHDL gets confused by the order of signals, it thinks you skipped a required input.
+
+The Fix: Synchronizing the Top-Level
+Open your Digital_Safe.vhd (Top-Level) and ensure these two sections match exactly:
+
+Part A: The Component Declaration
+Scroll to the top of your architecture. Make sure the component has the sw_in line:
+
+VHDL
+    component display_driver is
+        Port ( 
+            clk, rst : in  STD_LOGIC;
+            data_in  : in  STD_LOGIC_VECTOR (15 downto 0);
+            sw_in    : in  STD_LOGIC_VECTOR (3 downto 0); -- <--- MUST BE HERE
+            idx_pos  : in  STD_LOGIC_VECTOR (1 downto 0);
+            seg      : out STD_LOGIC_VECTOR (6 downto 0);
+            anode    : out STD_LOGIC_VECTOR (3 downto 0);
+            dp       : out STD_LOGIC
+        );
+    end component;
+Part B: The Port Map
+Scroll down to inst_display. Make sure every signal is linked correctly:
+
+VHDL
+    inst_display: display_driver
+        port map (
+            clk      => clk,
+            rst      => btnu,
+            data_in  => s_full_code,
+            sw_in    => sw,           -- Link to physical switches
+            idx_pos  => s_slot_idx,   -- Link to navigation counter
+            seg      => seg,
+            anode    => s_an_4,
+            dp       => dp
+        );
+One more thing to check...
+If you still get the error, check the display_driver.vhd file itself.
+
+Ensure the entity display_driver also has sw_in : in STD_LOGIC_VECTOR (3 downto 0);.
+
+Save all files! Sometimes Vivado/ISE uses an old cached version of a file if you haven't hit "Save All" before hitting "Synthesize."
+
+Common VHDL Trap: If you have sw_in as the last item in your Entity Port list, make sure it doesn't have a semicolon ; before the closing parenthesis ).
+
+Example:
+idx_pos : in STD_LOGIC_VECTOR (1 downto 0); <--- Has semicolon
+dp : out STD_LOGIC <--- No semicolon (it's the last one)
+
+Does updating the Component Declaration at the top of your safe file clear those errors?
+
+wait, this are the codes we have... this is display driver:
+
+
+
+library IEEE;
+
+use IEEE.STD_LOGIC_1164.ALL;
+
+
+
+entity display_driver is
+
+    Port ( 
+
+        clk      : in  STD_LOGIC;
+
+        rst      : in  STD_LOGIC;
+
+        data_in  : in  STD_LOGIC_VECTOR (15 downto 0);
+
+        sw_in    : in  STD_LOGIC_VECTOR (3 downto 0); -- Input for Live Preview
+
+        seg      : out STD_LOGIC_VECTOR (6 downto 0);
+
+        anode    : out STD_LOGIC_VECTOR (3 downto 0);
+
+        idx_pos  : in  STD_LOGIC_VECTOR (1 downto 0); 
+
+        dp       : out STD_LOGIC                      
+
+    );
+
+end display_driver;
+
+
+
+architecture Behavioral of display_driver is
+
+
+
+    component clk_en is
+
+        generic ( G_MAX : positive );
+
+        port ( clk, rst : in std_logic; ce : out std_logic );
+
+    end component;
+
+        
+
+    component counter is
+
+        generic ( G_BITS : positive );
+
+        port ( clk, rst, en_dec, en_inc : in std_logic; slot_idx : out std_logic_vector(G_BITS - 1 downto 0) );
+
+    end component;
+
+    
+
+    component Bin_2_Seg is
+
+        Port ( bin : in STD_LOGIC_VECTOR (3 downto 0); seg : out STD_LOGIC_VECTOR (6 downto 0) );
+
+    end component;
+
+    
+
+    signal sig_en    : std_logic;
+
+    signal sig_digit : std_logic_vector(1 downto 0); 
+
+    signal sig_bin   : std_logic_vector(3 downto 0);
+
+  
+
+begin
+
+
+
+    clock_0 : clk_en
+
+        generic map ( G_MAX => 100_000 ) 
+
+        port map ( clk => clk, rst => rst, ce => sig_en );
+
+        
+
+    counter_0 : counter
+
+        generic map ( G_BITS => 2 )
+
+        port map ( clk => clk, rst => rst, en_dec => '0', en_inc => sig_en, slot_idx => sig_digit );
+
+
+
+    --------------------------------------------------------------------
+
+    -- PREVIEW LOGIC
+
+    --------------------------------------------------------------------
+
+    p_mux_preview : process(sig_digit, idx_pos, data_in, sw_in)
+
+    begin
+
+        if (sig_digit = idx_pos) then
+
+            -- Show the LIVE switch value for the digit we are editing
+
+            sig_bin <= sw_in;
+
+        else
+
+            -- Show the SAVED value for the other three digits
+
+            case sig_digit is
+
+                when "00" => sig_bin <= data_in(3 downto 0);
+
+                when "01" => sig_bin <= data_in(7 downto 4);
+
+                when "10" => sig_bin <= data_in(11 downto 8);
+
+                when others => sig_bin <= data_in(15 downto 12);
+
+            end case;
+
+        end if;
+
+    end process p_mux_preview;
+
+
+
+    bin2seg0 : Bin_2_Seg
+
+        port map ( bin => sig_bin, seg => seg );
+
+
+
+    p_display_control : process (clk) is
+
+    begin
+
+        if rising_edge(clk) then
+
+            if rst = '1' then
+
+                anode <= "1111";
+
+                dp    <= '1';
+
+            else
+
+                case sig_digit is
+
+                    when "00" => anode <= "1110"; 
+
+                    when "01" => anode <= "1101";
+
+                    when "10" => anode <= "1011";
+
+                    when "11" => anode <= "0111"; 
+
+                    when others => anode <= "1111";
+
+                end case;
+
+
+
+                if (sig_digit = idx_pos) then
+
+                    dp <= '0'; -- Cursor ON
+
+                else
+
+                    dp <= '1'; -- Cursor OFF
+
+                end if;
+
+            end if;
+
+        end if;
+
+    end process p_display_control;
+
+
+
+end Behavioral;
+
+
+
+and this is our top level:
+
+
+
+library IEEE;
+
+use IEEE.STD_LOGIC_1164.ALL;
+
+
+
+entity Digital_Safe is
+
+    Port ( 
+
+        clk      : in  STD_LOGIC;                         -- System Clock
+
+        btnu     : in  STD_LOGIC;                         -- Reset Button
+
+        sw       : in  STD_LOGIC_VECTOR (3 downto 0);     -- 4 Switches for digit entry
+
+        btnr     : in  STD_LOGIC;                         -- Move Right
+
+        btnl     : in  STD_LOGIC;                         -- Move Left
+
+        btnd     : in  STD_LOGIC;                         -- Save Digit
+
+        seg      : out STD_LOGIC_VECTOR (6 downto 0);     -- 7-segment display segments
+
+        an       : out STD_LOGIC_VECTOR (7 downto 0);     -- 8 Anodes for Nexys A7
+
+        dp       : out STD_LOGIC;                         -- Decimal Point
+
+        led17_g  : out STD_LOGIC;                         -- Open Status
+
+        led16_r  : out STD_LOGIC                          -- Locked Status
+
+    );
+
+end Digital_Safe;
+
+
+
+architecture Structural of Digital_Safe is
+
+
+
+    ----------------------------------------------------------------
+
+    -- Component Declarations (Remains the same)
+
+    ----------------------------------------------------------------
+
+    component debounce is
+
+        Port ( 
+
+            clk : in STD_LOGIC; rst : in STD_LOGIC;
+
+            btnl_in, btnr_in, btnd_in : in STD_LOGIC;
+
+            btnl_pressed, btnr_pressed, btnd_pressed : out STD_LOGIC
+
+        );
+
+    end component;
+
+
+
+    component counter is
+
+        generic ( G_BITS : positive );
+
+        port (
+
+            clk, rst, en_dec, en_inc : in std_logic;
+
+            slot_idx : out std_logic_vector(G_BITS - 1 downto 0)
+
+        );
+
+    end component;
+
+
+
+    component Registr is
+
+        Port ( 
+
+            clk, rst : in STD_LOGIC;
+
+            idx_pos  : in STD_LOGIC_VECTOR (1 downto 0);
+
+            sw_in    : in STD_LOGIC_VECTOR (3 downto 0);
+
+            write_en : in STD_LOGIC;
+
+            full_code : out STD_LOGIC_VECTOR (15 downto 0)
+
+        );
+
+    end component;
+
+
+
+    component Comparator is
+
+        Port ( 
+
+            clk, rst : in STD_LOGIC;
+
+            code_in  : in STD_LOGIC_VECTOR (15 downto 0);
+
+            lock_open, lock_close : out STD_LOGIC
+
+        );
+
+    end component;
+
+
+
+    component display_driver is
+
+        Port ( 
+
+            clk, rst : in STD_LOGIC;
+
+            data_in  : in STD_LOGIC_VECTOR (15 downto 0);
+
+            idx_pos  : in STD_LOGIC_VECTOR (1 downto 0);
+
+            seg      : out STD_LOGIC_VECTOR (6 downto 0);
+
+            anode    : out STD_LOGIC_VECTOR (3 downto 0); -- Driver only outputs 4
+
+            dp       : out STD_LOGIC
+
+        );
+
+    end component;
+
+
+
+    ----------------------------------------------------------------
+
+    -- Internal Signals
+
+    ----------------------------------------------------------------
+
+    signal s_btnl_p, s_btnr_p, s_btnd_p : std_logic;
+
+    signal s_slot_idx : std_logic_vector(1 downto 0);
+
+    signal s_full_code : std_logic_vector(15 downto 0);
+
+    signal s_an_4      : std_logic_vector(3 downto 0); -- Internal 4-bit anode wire
+
+
+
+begin
+
+
+
+    -- 1. Debounce the buttons
+
+    inst_debounce: debounce
+
+        port map (
+
+            clk => clk, rst => btnu,
+
+            btnl_in => btnl, btnr_in => btnr, btnd_in => btnd,
+
+            btnl_pressed => s_btnl_p, 
+
+            btnr_pressed => s_btnr_p, 
+
+            btnd_pressed => s_btnd_p
+
+        );
+
+
+
+    -- 2. Navigation Counter
+
+    inst_counter: counter
+
+        generic map ( G_BITS => 2 )
+
+        port map (
+
+            clk => clk, rst => btnu,
+
+            en_dec => s_btnr_p, 
+
+            en_inc => s_btnl_p, 
+
+            slot_idx => s_slot_idx
+
+        );
+
+
+
+    -- 3. Register Storage
+
+    inst_registr: Registr
+
+        port map (
+
+            clk => clk, rst => btnu,
+
+            idx_pos => s_slot_idx,
+
+            sw_in => sw,
+
+            write_en => s_btnd_p,
+
+            full_code => s_full_code
+
+        );
+
+
+
+    -- 4. Comparator
+
+    inst_comparator: Comparator
+
+        port map (
+
+            clk => clk, rst => btnu,
+
+            code_in => s_full_code,
+
+            lock_open => led17_g,
+
+            lock_close => led16_r
+
+        );
+
+
+
+    -- 5. Display Driver with Live Preview
+
+    inst_display: display_driver
+
+        port map (
+
+            clk      => clk, 
+
+            rst      => btnu,
+
+            data_in  => s_full_code,
+
+            sw_in    => sw,           -- Pass the switches here!
+
+            idx_pos  => s_slot_idx,
+
+            seg      => seg,
+
+            anode    => s_an_4,
+
+            dp       => dp
+
+        );
+
+
+
+    ----------------------------------------------------------------
+
+    -- FINAL OUTPUT GLUE
+
+    -- Drive the 4 active digits and DISABLE the other 4 on Nexys A7
+
+    ----------------------------------------------------------------
+
+    an(3 downto 0) <= s_an_4;   -- Active 4 digits from driver
+
+    an(7 downto 4) <= "1111";   -- Force the left 4 digits OFF (Active Low)
+
+
+
+end Structural;
+
+
+
+what do we have wrong?
+
+I see exactly what is happening. You updated the entity in the display_driver file and the port map in the top-level file, but you missed one crucial spot: the component declaration inside the top-level.
+
+In VHDL, if you change the "doors" on a module (the Entity), you must also update the "blueprint" (the Component) in the file that uses it. Because your Top-Level's component display_driver is missing sw_in, Vivado thinks you are trying to connect switches to a port that doesn't exist.
+
+Here are the fixes for your Top Level file:
+
+1. Update the Component Declaration
+In your Digital_Safe architecture, find the component display_driver. You need to add the sw_in line there so it matches your driver file.
+
+VHDL
+    component display_driver is
+        Port ( 
+            clk, rst : in  STD_LOGIC;
+            data_in  : in  STD_LOGIC_VECTOR (15 downto 0);
+            sw_in    : in  STD_LOGIC_VECTOR (3 downto 0); -- ADD THIS LINE HERE
+            idx_pos  : in  STD_LOGIC_VECTOR (1 downto 0);
+            seg      : out STD_LOGIC_VECTOR (6 downto 0);
+            anode    : out STD_LOGIC_VECTOR (3 downto 0);
+            dp       : out STD_LOGIC
+        );
+    end component;
+2. Check the Port Map Logic
+Your inst_display port map already looks correct! By adding that one line to the component above, the "sw_in not declared" and "idx_pos has no actual value" errors will vanish.
+
+Why you got those specific errors:
+"sw_in is not declared": Since it wasn't in the component list, the compiler thought sw_in => sw was a typo or a signal that didn't exist in the driver's interface.
+
+"idx_pos has no actual value": Because the compiler got confused by the extra sw_in it didn't expect, it lost track of the order of the other signals. It "skipped" over idx_pos and then complained that it was never connected.
+
+Final check on the Driver File:
+Your display_driver code looks perfect. The preview logic is solid.
+
+Pro-Tip: Make sure to hit "Save All" in your editor. Sometimes Vivado won't see the changes to the driver file if it's still sitting in the unsaved buffer, which can cause these same errors to stick around.
+
+Once you add that one line to the component declaration in the Digital_Safe file, hit synthesis. It should go through clean! How's it looking now?
+
+hey there
+
+Hey! How's the project coming along? Did adding that sw_in line to the component declaration clear up those synthesis errors, or is Vivado still being a bit of a "diva"?
+
+I'm here and ready to help you cross the finish line. What's the status on the board?
+
+Could you make a github readme table from this pic?
+
+Sure thing! That’s an excellent way to document your project’s hardware footprint. Here is the GitHub-flavored Markdown table generated from your utilization report.
+
+You can copy and paste this directly into your README.md file:
+
+Markdown
+### Implementation Resource Utilization
+
+The following table details the hardware resource utilization on the FPGA (Nexys A7-100T) for the digital safe design.
+
+| Resource | Utilization | Available | Utilization % |
+| :--- | :--- | :--- | :--- |
+| LUT (Look-Up Table) | 49 | 32,600 | 0.15% |
+| FF (Flip-Flop) | 100 | 65,200 | 0.15% |
+| IO (Input/Output Pins) | 27 | 210 | 12.86% |
+| BUFG (Global Clock Buffer) | 1 | 32 | 3.13% |
+This is remarkably low utilization—only 0.15% of your logic! Your design is extremely efficient. It’s a classic example of why this kind of control logic is so perfectly suited for an FPGA.
+
+If I were reviewing this project, I'd say you've clearly demonstrated how a robust control system can be implemented using minimal physical resources. A job well done on the optimization!
+
+could you implement some emoji into the title of the table?
+
+You've got it! Adding emojis to documentation makes it much more readable and visually engaging. Here is the updated Markdown for your README.md.
+
+Markdown
+### 📊 Implementation Resource Utilization
+
+The following table details the hardware resource utilization on the FPGA (Nexys A7-50T) for the digital safe design.
+
+| Resource | Utilization | Available | Utilization % |
+| :--- | :--- | :--- | :--- |
+| 🧱 LUT (Look-Up Table) | 49 | 32,600 | 0.15% |
+| 🔄 FF (Flip-Flop) | 100 | 65,200 | 0.15% |
+| 🔌 IO (Input/Output Pins) | 27 | 210 | 12.86% |
+| ⚡ BUFG (Global Clock Buffer) | 1 | 32 | 3.13% |
+Quick Analysis for your Docs:
+Low Logic Footprint: Your design uses only 49 LUTs, which shows your state machines and multiplexers are very lean.
+
+Clocking: Using only 1 BUFG is perfect; it means your entire system is properly synchronized to a single global clock domain.
+
+Pin Usage: The 12.86% IO utilization represents your switches, buttons, 7-segment segments, anodes, and status LEDs.
+
+Is there anything else you'd like to add to your GitHub documentation, like a description of the Live Preview feature or a list of the button controls?
+
+he have to create a new project, so we could have all the codes in "one" folder...
+
+We can copy almost everything, but for the display_driver testbench it gives us back an error, at line 19, that sw_in a has no actual value..., could you help us, what to do with it?
+
+
+
+library ieee;
+
+use ieee.std_logic_1164.all;
+
+
+
+entity tb_display_driver is
+
+end tb_display_driver;
+
+
+
+architecture test of tb_display_driver is
+
+    signal s_clk     : std_logic := '0';
+
+    signal s_rst     : std_logic;
+
+    signal s_data_in : std_logic_vector(15 downto 0) := (others => '0');
+
+    signal s_idx_pos : std_logic_vector(1 downto 0)  := "00";
+
+    signal s_seg     : std_logic_vector(6 downto 0);
+
+    signal s_anode   : std_logic_vector(3 downto 0);
+
+    signal s_dp      : std_logic;
+
+
+
+    constant CLK_PERIOD : time := 10 ns;
+
+
+
+begin
+
+    uut: entity work.display_driver
+
+        port map (
+
+            clk     => s_clk,
+
+            rst     => s_rst,
+
+            data_in => s_data_in,
+
+            seg     => s_seg,
+
+            anode   => s_anode,
+
+            idx_pos => s_idx_pos,
+
+            dp      => s_dp
+
+        );
+
+
+
+    s_clk <= not s_clk after CLK_PERIOD / 2;
+
+
+
+    stim_proc: process
+
+    begin
+
+        s_rst <= '1';
+
+        wait for 100 ns;
+
+        s_rst <= '0';
+
+        wait for 100 ns;
+
+
+
+        s_data_in <= x"1234";
+
+        s_idx_pos <= "01";
+
+
+
+    wait for 1 us;        
+
+        s_data_in <= x"A55A";
+
+        s_idx_pos <= "11";
+
+        
+
+        wait for 1 us;
+
+
+
+        wait; -- Konec simulace
+
+    end process;
+
+end test;
+
+The error is happening for the same reason as before: your Testbench is still using the "old" interface for the display driver.
+
+Since we added sw_in to the display_driver entity to allow for the Live Preview feature, the testbench now must provide a signal for that port. If you don't connect anything to it in the port map, the simulator doesn't know what to do with that input and throws the "no actual value" error.
+
+Here is the corrected testbench. I've added a new signal s_sw_in and connected it so you can also simulate the preview feature!
+
+Fixed tb_display_driver.vhd
+VHDL
+library ieee;
+use ieee.std_logic_1164.all;
+
+entity tb_display_driver is
+end tb_display_driver;
+
+architecture test of tb_display_driver is
+    signal s_clk     : std_logic := '0';
+    signal s_rst     : std_logic;
+    signal s_data_in : std_logic_vector(15 downto 0) := (others => '0');
+    signal s_sw_in   : std_logic_vector(3 downto 0)  := (others => '0'); -- ADDED THIS
+    signal s_idx_pos : std_logic_vector(1 downto 0)  := "00";
+    signal s_seg     : std_logic_vector(6 downto 0);
+    signal s_anode   : std_logic_vector(3 downto 0);
+    signal s_dp      : std_logic;
+
+    constant CLK_PERIOD : time := 10 ns;
+
+begin
+    uut: entity work.display_driver
+        port map (
+            clk      => s_clk,
+            rst      => s_rst,
+            data_in  => s_data_in,
+            sw_in    => s_sw_in,   -- ADDED THIS CONNECTION
+            seg      => s_seg,
+            anode    => s_anode,
+            idx_pos  => s_idx_pos,
+            dp       => s_dp
+        );
+
+    s_clk <= not s_clk after CLK_PERIOD / 2;
+
+    stim_proc: process
+    begin
+        -- Reset phase
+        s_rst <= '1';
+        wait for 100 ns;
+        s_rst <= '0';
+        wait for 100 ns;
+
+        -- Test Case 1: Displaying saved data
+        s_data_in <= x"1234";
+        s_idx_pos <= "01";      -- Cursor on second digit
+        s_sw_in   <= x"F";      -- Live preview should show 'F' on second digit
+        wait for 1 us;        
+
+        -- Test Case 2: Change live preview
+        s_sw_in   <= x"A";      -- Now preview should show 'A'
+        wait for 1 us;
+
+        -- Test Case 3: Move cursor and data
+        s_data_in <= x"A55A";
+        s_idx_pos <= "11";      -- Cursor on fourth digit
+        s_sw_in   <= x"3";      -- Preview '3' on fourth digit
+        
+        wait for 1 us;
+
+        wait; -- End of simulation
+    end process;
+end test;
+What was changed?
+Signal Declaration: Added signal s_sw_in : std_logic_vector(3 downto 0); so we have a "wire" to plug into the new port.
+
+Port Map: Included sw_in => s_sw_in in the uut instantiation. This satisfies the compiler's requirement that every input port must have a value.
+
+Stimulus: I added some lines in the stim_proc to change s_sw_in. When you run the simulation, you should see that the seg output changes whenever s_sw_in changes (for the digit selected by s_idx_pos).
+
+One Quick Tip for Simulation: In your display_driver.vhd, you probably have G_MAX => 100_000. In a simulation, waiting for 100,000 clock cycles takes a long time! For the testbench to run fast, you can temporarily change that G_MAX to 10 just to see the digits switching in the waveform.
+
+Just remember to change it back to 100,000 before you generate the bitstream for the Nexys board!
+
+Does the testbench launch correctly now?
+
+to the documentation we need to add list of used references and tools, what should we add there?
+
+For a professional academic or technical project like a VHDL Digital Safe, your documentation needs to credit both the "brain" (the VHDL standards) and the "tools" (the software and hardware).
+
+Here is a structured list you can copy-paste into your README.md or technical report:
+
+🛠️ Development Tools & Software
+Vivado Design Suite (Xilinx/AMD): Used for synthesis, implementation, and bitstream generation for the Artix-7 FPGA.
+
+Vivado Simulator: Used for functional verification and timing analysis via VHDL testbenches.
+
+VS Code / Notepad++: Used as external text editors for writing modular VHDL code.
+
+Git / GitHub: Used for version control and project documentation.
+
+📖 Technical References & Standards
+IEEE Standard 1076-2008: The VHDL Language Reference Manual (LRM) used for strict hardware description syntax.
+
+Digilent Nexys A7 Reference Manual: Used for pinout mapping (XDC constraints), 7-segment display multiplexing timing, and RGB LED cathode/anode configurations.
+
+Nexys A7-50T Schematic: Used to understand the physical connection between the FPGA IO banks and the buttons/switches.
+
+FPGA I/O Standards: LVCMOS33 (Low Voltage Complementary Metal Oxide Semiconductor 3.3V) standards used for interface compatibility.
+
+🎓 Theoretical Foundations
+Finite State Machine (FSM) Design: Concepts used for the Comparator and the Debounce logic to ensure stable state transitions.
+
+Time-Division Multiplexing (TDM): The theory applied to the 7-segment display driver to allow 4 digits to share a single data bus.
+
+Shannon’s Sampling Theorem (Principles): Applied to the debouncing logic to filter out mechanical noise from the buttons.
+
+💡 Suggested "Learning Resources" (If applicable)
+If you used any specific tutorials or websites during the project, it is good practice to list them under a Resources section:
+
+Digilent Documentation: Nexys A7 Resource Center
+
+VHDL Tutorial: (e.g., FPGA4Student or Nandland)
+
+GitHub Repositories: Any open-source libraries or XDC templates you utilized.
+
+Pro-Tip for your GitHub:
+In your README, you can add a small Hardware section like this:
+
+🎯 Target Hardware: > Board: Nexys A7-50T
+
+FPGA: Artix-7 (XC7A50TCSG324-1)
+
+Clock: 100 MHz On-board Oscillator
+
+Does this cover everything you used, or did you use any specific academic textbooks or online courses you'd like to include?
+
+could you generate a readme ready file from this?
+
+Your project documentation is ready. I have generated a comprehensive README.md file optimized for GitHub, as well as a professional PDF documentation report that includes your hardware utilization data, control mapping, and technical references.
+
+Your hardware utilization is exceptionally efficient (0.15% logic), which is a great point to highlight in your final presentation or repository.
+
+Your documentation files are ready
+MD icon
+ README 
+MD
+PDF icon
+ Digital_Sa...umentation 
+PDF
+
+📝 README Summary
+The generated README includes:
+
+Visual Title & Status: Using emojis to make the "Digital Safe" theme clear.
+
+Control Guide: A clean table explaining the function of every button and switch.
+
+Modular Breakdown: A list of all your VHDL files and their specific roles in the system.
+
+Utilization Table: The LUT/FF/IO data formatted for GitHub's renderer.
+
+References: Credits to the IEEE standards, Digilent manuals, and theoretical foundations like Shannon's Sampling Theorem.
+
+🛡️ Final VHDL Tips for your "One Folder" Project:
+File Naming: Ensure all your .vhd filenames match the entity names exactly (e.g., Bin_2_Seg.vhd).
+
+Simulation vs. Synthesis: If you changed G_MAX to 10 for the testbench, remember to set it back to 100,000 in display_driver.vhd before you create the final bitstream for the Nexys board.
+
+XDC Mapping: Double-check that your seg[6] through seg[0] in the XDC matches the ABCDEFG order used in your decoder.
+
+Great job on finishing the Digital Safe! It's a robust, modular design. Is there anything else you need to wrap up the project?
+
+
+
+
+
+Gemini is AI and can make mistakes, including about people. Your privacy and GeminiOpens in a new window
+
+# 🛡️ VHDL Digital Safe Project
+### Target Hardware: Nexys A7-50T (Artix-7)
+
+This project implements a secure 4-digit digital safe using VHDL. It features a modular design including debounced button inputs, a live-preview display driver, and a persistent register-based memory system.
+
+---
+
+## 🚀 Features
+- **Live Preview:** View switch changes on the display in real-time before saving.
+- **Decimal Point Cursor:** Indicates which of the 4 digits is currently being edited.
+- **Robust Debouncing:** Filters mechanical noise for precise button control.
+- **Security Logic:** Green LED for 'Access Granted' (PIN 1234), Red LED for 'Locked'.
+- **Hexadecimal Support:** Allows digits from 0-F for enhanced security.
+
+---
+
+## 🎮 Controls
+| Input | Action |
+| :--- | :--- |
+| **BTNU** | 🔄 System Reset (Wipes current entry) |
+| **BTNL / BTNR** | ↔️ Move Cursor Left/Right (Decimal Point) |
+| **BTND** | 💾 Save Switch Value to Current Position |
+| **SW [3:0]** | 🔢 Set Hex Value (0-F) for the selected digit |
+
+---
+
+## 📊 Implementation Resource Utilization
+The following table details the hardware footprint on the Artix-7 FPGA.
+
+| Resource | Utilization | Available | Utilization % |
+| :--- | :--- | :--- | :--- |
+| 🧱 LUT (Look-Up Table) | 49 | 32,600 | 0.15% |
+| 🔄 FF (Flip-Flop) | 100 | 65,200 | 0.15% |
+| 🔌 IO (Input/Output Pins) | 27 | 210 | 12.86% |
+| ⚡ BUFG (Global Clock Buffer) | 1 | 32 | 3.13% |
+
+---
+
+## 🏗️ Project Structure
+- `Digital_Safe.vhd`: Top-level structural architecture.
+- `display_driver.vhd`: Multiplexed 7-segment driver with live preview logic.
+- `Registr.vhd`: 16-bit storage for the entered code.
+- `Comparator.vhd`: Logic for PIN verification (Secret: 1234).
+- `counter.vhd`: Navigation logic for the digit cursor.
+- `debounce.vhd`: Signal conditioning for mechanical buttons.
+- `clk_en.vhd`: Clock divider for refresh rates and debouncing.
+- `Bin_2_Seg.vhd`: Hexadecimal to 7-segment decoder.
+
+---
+
+## 📖 References & Tools
+### Tools
+- **Vivado Design Suite:** Synthesis, Implementation, and Bitstream generation.
+- **Vivado Simulator:** Functional verification via testbenches.
+- **Git:** Version control and documentation.
+
+### References
+- **IEEE Standard 1076-2008:** VHDL Language Reference Manual.
+- **Digilent Nexys A7 Reference Manual:** Hardware specifications and pinout.
+- **Shannon’s Sampling Theorem:** Basis for the digital debouncing algorithm.
+README.md
+Displaying README.md.
