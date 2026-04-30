@@ -1,102 +1,128 @@
 library IEEE;
 use IEEE.STD_LOGIC_1164.ALL;
 
-entity Digital_Safe_Top is
+entity Digital_Safe is
     Port ( 
-        clk     : in  STD_LOGIC;                         -- Onboard 100MHz (Pin E3)
-        btnu    : in  STD_LOGIC;                         -- Reset (Pin M18)
-        btnl    : in  STD_LOGIC;                         -- Move Left / Increment (Pin P17)
-        btnr    : in  STD_LOGIC;                         -- Move Right / Decrement (Pin M17)
-        btnd    : in  STD_LOGIC;                         -- Save Digit (Pin P18)
-        sw      : in  STD_LOGIC_VECTOR (3 downto 0);    -- 4-bit binary input (Pins J15, L16, M13, R15)
-        seg     : out STD_LOGIC_VECTOR (6 downto 0);    -- 7-segment Cathodes
-        an      : out STD_LOGIC_VECTOR (3 downto 0);    -- 4 active-low Anodes
-        dp      : out STD_LOGIC;                         -- Decimal Point
-        led17_g : out STD_LOGIC;                         -- Safe is OPEN (Green LED)
-        led16_r : out STD_LOGIC                          -- Safe is LOCKED (Red LED)
+        clk      : in  STD_LOGIC;                       
+        btnu     : in  STD_LOGIC;                         
+        sw       : in  STD_LOGIC_VECTOR (3 downto 0);     
+        btnr     : in  STD_LOGIC;                       
+        btnl     : in  STD_LOGIC;                
+        btnd     : in  STD_LOGIC;                         
+        seg      : out STD_LOGIC_VECTOR (6 downto 0);     
+        an       : out STD_LOGIC_VECTOR (7 downto 0);    
+        dp       : out STD_LOGIC;                         
+        led17_g  : out STD_LOGIC;                         
+        led16_r  : out STD_LOGIC;  
+        lock_open_indicator :  out STD_LOGIC                  
     );
-end Digital_Safe_Top;
+end Digital_Safe;
 
-architecture Structural of Digital_Safe_Top is
+architecture Structural of Digital_Safe is
 
-    --------------------------------------------------------------------
-    -- Vnitřní propojovací signály
-    --------------------------------------------------------------------
-    signal s_btnl_p    : std_logic; -- Pulse z levého tlačítka
-    signal s_btnr_p    : std_logic; -- Pulse z pravého tlačítka
-    signal s_btnd_p    : std_logic; -- Pulse z dolního tlačítka (zápis)
-    signal s_slot_idx  : std_logic_vector(1 downto 0);  -- Pozice kurzoru (0-3)
-    signal s_full_code : std_logic_vector(15 downto 0); -- Aktuální stav paměti trezoru
+    component debounce is
+        Port ( 
+            clk : in STD_LOGIC; rst : in STD_LOGIC;
+            btnl_in, btnr_in, btnd_in : in STD_LOGIC;
+            btnl_pressed, btnr_pressed, btnd_pressed : out STD_LOGIC
+        );
+    end component;
+
+    component counter is
+        generic ( G_BITS : positive );
+        port (
+            clk, rst, en_dec, en_inc : in std_logic;
+            slot_idx : out std_logic_vector(G_BITS - 1 downto 0)
+        );
+    end component;
+
+    component Registr is
+        Port ( 
+            clk, rst : in STD_LOGIC;
+            idx_pos  : in STD_LOGIC_VECTOR (1 downto 0);
+            sw_in    : in STD_LOGIC_VECTOR (3 downto 0);
+            write_en : in STD_LOGIC;
+            full_code : out STD_LOGIC_VECTOR (15 downto 0)
+        );
+    end component;
+
+    component Comparator is
+        Port ( 
+            clk, rst : in STD_LOGIC;
+            code_in  : in STD_LOGIC_VECTOR (15 downto 0);
+            lock_open, lock_close : out STD_LOGIC
+        );
+    end component;
+
+    component display_driver is
+        Port ( 
+            clk, rst : in STD_LOGIC;
+            data_in  : in STD_LOGIC_VECTOR (15 downto 0);
+            sw_in    : in std_logic_vector (3 downto 0);  
+            idx_pos  : in STD_LOGIC_VECTOR (1 downto 0);
+            seg      : out STD_LOGIC_VECTOR (6 downto 0);
+            anode    : out STD_LOGIC_VECTOR (3 downto 0);
+            dp       : out STD_LOGIC
+        );
+    end component;
+
+    signal s_btnl_p, s_btnr_p, s_btnd_p : std_logic;
+    signal s_slot_idx : std_logic_vector(1 downto 0);
+    signal s_full_code : std_logic_vector(15 downto 0);
+    signal s_an_4      : std_logic_vector(3 downto 0);
+    signal s_lock_open: std_logic;
 
 begin
 
-    --------------------------------------------------------------------
-    -- DEBOUNCE: Ošetření zákmitů tlačítek
-    --------------------------------------------------------------------
-    DEBOUNCE_INST : entity work.debounce
+    inst_debounce: debounce
         port map (
-            clk          => clk,
-            rst          => btnu,
-            btnl_in      => btnl,
-            btnr_in      => btnr,
-            btnd_in      => btnd,
-            btnl_pressed => s_btnl_p,
-            btnr_pressed => s_btnr_p,
+            clk => clk, rst => btnu,
+            btnl_in => btnl, btnr_in => btnr, btnd_in => btnd,
+            btnl_pressed => s_btnl_p, 
+            btnr_pressed => s_btnr_p, 
             btnd_pressed => s_btnd_p
         );
 
-    --------------------------------------------------------------------
-    -- COUNTER: Správa indexu pozice (kterou číslici editujeme)
-    --------------------------------------------------------------------
-    COUNTER_INST : entity work.counter
-        generic map (
-            G_BITS => 2
-        )
+    inst_counter: counter
+        generic map ( G_BITS => 2 )
         port map (
-            clk      => clk,
-            rst      => btnu,
-            en_inc   => s_btnl_p, -- Zvyšuje index (vlevo)
-            en_dec   => s_btnr_p, -- Snižuje index (vpravo)
+            clk => clk, rst => btnu,
+            en_dec => s_btnr_p, 
+            en_inc => s_btnl_p, 
             slot_idx => s_slot_idx
         );
 
-    --------------------------------------------------------------------
-    -- REGISTR: Paměťový modul pro uložení zadaného kódu
-    --------------------------------------------------------------------
-    REGISTR_INST : entity work.Registr
+    inst_registr: Registr
         port map (
-            clk       => clk,
-            rst       => btnu,
-            idx_pos   => s_slot_idx,
-            sw_in     => sw,
-            write_en  => s_btnd_p,
+            clk => clk, rst => btnu,
+            idx_pos => s_slot_idx,
+            sw_in => sw,
+            write_en => s_btnd_p,
             full_code => s_full_code
         );
 
-    --------------------------------------------------------------------
-    -- COMPARATOR: Kontrola zadaného kódu proti tajnému heslu
-    --------------------------------------------------------------------
-    COMPARATOR_INST : entity work.Comparator
+    inst_comparator: Comparator
         port map (
-            clk        => clk,
-            rst        => btnu,
-            code_in    => s_full_code,
-            lock_open  => led17_g,
+            clk => clk, rst => btnu,
+            code_in => s_full_code,
+            lock_open => led17_g,
             lock_close => led16_r
         );
 
-    --------------------------------------------------------------------
-    -- DISPLAY_DRIVER: Zobrazení kódu a tečky (kurzoru) na displeji
-    --------------------------------------------------------------------
-    DISPLAY_INST : entity work.display_driver
+    inst_display: display_driver
         port map (
-            clk     => clk,
-            rst     => btnu,
-            data_in => s_full_code,
-            seg     => seg,
-            anode   => an,
-            idx_pos => s_slot_idx,
-            dp      => dp
+            clk      => clk, 
+            rst      => btnu,
+            data_in  => s_full_code,
+            sw_in    => sw, 
+            idx_pos  => s_slot_idx,
+            seg      => seg,
+            anode    => s_an_4,
+            dp       => dp
         );
+
+    an(3 downto 0) <= s_an_4; 
+    an(7 downto 4) <= "1111"; 
+    lock_open_indicator <= not s_lock_open;
 
 end Structural;
